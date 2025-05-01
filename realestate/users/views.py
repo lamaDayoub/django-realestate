@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.permissions import AllowAny
 from drf_yasg.utils import swagger_auto_schema
 from django.contrib.auth.hashers import check_password
-from .utils import send_verification_email
+from .utils import send_verification_email,send_password_change_notification
 from drf_yasg import openapi
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .authentication.serializers import CustomTokenSerializer
@@ -20,6 +20,7 @@ from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.parsers import MultiPartParser
 from .serializers import ProfileSerializer,PublicProfileSerializer
 from rest_framework.generics import GenericAPIView
+from rest_framework_simplejwt.tokens import OutstandingToken, BlacklistedToken
 User = get_user_model()
 
 
@@ -183,36 +184,39 @@ class CustomLoginView(TokenObtainPairView):
  
 @swagger_auto_schema(
     method='post',
-    operation_description="Logout a user by blacklisting their refresh token.",
-    request_body=openapi.Schema(
-        type=openapi.TYPE_OBJECT,
-        required=['refresh_token'],
-        properties={
-            'refresh_token': openapi.Schema(type=openapi.TYPE_STRING, description='The refresh token to blacklist.'),
-        },
-    ),
+    operation_id="logout_all_devices",
+    operation_description="Log out the authenticated user from all devices by blacklisting all their active tokens.",
     responses={
-        200: "Successfully logged out.",
-        400: "Bad request. Either the refresh token is missing or invalid."
+        200: openapi.Response(
+            description="Successfully logged out from all devices.",
+            examples={
+                "application/json": {
+                    "detail": "Successfully logged out from all devices."
+                }
+            }
+        ),
+        401: openapi.Response(
+            description="Unauthorized. Authentication credentials were not provided or invalid.",
+            examples={
+                "application/json": {
+                    "detail": "Authentication credentials were not provided."
+                }
+            }
+        )
     }
-)   
+)  
 @api_view(['POST'])
 @authentication_classes([JWTAuthentication])
 @permission_classes([IsAuthenticated])
 def logout_view(request):
-    try:
-        # Get the refresh token from the request body
-        refresh_token = request.data.get("refresh_token")
-        if not refresh_token:
-            return Response({"detail": "Refresh token is required."}, status=400)
+    user = request.user
 
-        # Blacklist the refresh token
-        token = RefreshToken(refresh_token)
-        token.blacklist()
+    # Blacklist all outstanding tokens for the user
+    tokens = OutstandingToken.objects.filter(user=user)
+    for token in tokens:
+        BlacklistedToken.objects.get_or_create(token=token)
 
-        return Response({"detail": "Successfully logged out."}, status=200)
-    except Exception as e:
-        return Response({"detail": "Invalid token."}, status=400)
+    return Response({"detail": "Successfully logged out from all devices."}, status=status.HTTP_200_OK)
     
 ######################profile########################
 
@@ -496,30 +500,44 @@ class ChangePasswordView(GenericAPIView):
             type=openapi.TYPE_OBJECT,
             required=['current_password', 'new_password'],
             properties={
-                'current_password': openapi.Schema(type=openapi.TYPE_STRING, description="The current password of the user."),
-                'new_password': openapi.Schema(type=openapi.TYPE_STRING, description="The new password for the user."),
+                'current_password': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="The current password of the user."
+                ),
+                'new_password': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="The new password for the user."
+                ),
             },
         ),
         responses={
             200: openapi.Response(
-                description="Password changed successfully.",
+                description="Password changed successfully. The user is logged out of all devices.",
                 examples={
-                    'application/json': {
-                        'detail': 'Password changed successfully.',
+                    "application/json": {
+                        "message": "Password updated successfully. You have been logged out of all devices."
                     }
                 }
             ),
             400: openapi.Response(
                 description="Bad request, e.g., current password incorrect or reused password.",
                 examples={
-                    'application/json': {
-                        'detail': 'Current password is incorrect.',
+                    "application/json": {
+                        "detail": "Current password is incorrect."
                     },
-                    'application/json': {
-                        'detail': 'You cannot reuse your last 6 passwords.',
+                    "application/json": {
+                        "detail": "You cannot reuse your last 6 passwords."
                     }
                 }
             ),
+            401: openapi.Response(
+                description="Unauthorized. Authentication credentials were not provided.",
+                examples={
+                    "application/json": {
+                        "detail": "Authentication credentials were not provided."
+                    }
+                }
+            )
         }
     )
 
@@ -527,27 +545,32 @@ class ChangePasswordView(GenericAPIView):
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
-        
         user = request.user
         new_password = serializer.validated_data['new_password']
-        
+
         # Store current password in history before changing it
         PasswordHistory.objects.create(
             user=user,
             hashed_password=user.password  # Already hashed
         )
-        
+
         # Set new password
         user.set_password(new_password)
         user.save()
-        
-        # Keep only last 6 passwords
+
+        # Keep only the last 6 passwords
         histories = user.password_histories.order_by('-created_at')
         if histories.count() > 6:
             for history in histories[6:]:
                 history.delete()
-        
-        return Response({"message": "Password updated successfully"}, status=status.HTTP_200_OK)
+
+        # Blacklist all outstanding tokens for the user
+        tokens = OutstandingToken.objects.filter(user=user)
+        for token in tokens:
+            BlacklistedToken.objects.get_or_create(token=token)
+        send_password_change_notification(user)
+
+        return Response({"message": "Password updated successfully. You have been logged out of all devices."}, status=status.HTTP_200_OK)
 
 
 
@@ -617,7 +640,7 @@ class ForgotPasswordView(APIView):
 
 class ResetPasswordView(APIView):
     permission_classes = [AllowAny]
-    serializer_class = ChangePasswordSerializer
+   
     @swagger_auto_schema(
         operation_id="reset_password",
         operation_description="Reset a user's password using a verification code sent to their email.",
@@ -632,10 +655,10 @@ class ResetPasswordView(APIView):
         ),
         responses={
             200: openapi.Response(
-                description="Password reset successful.",
+                description="Password reset successful. The user is logged out of all devices.",
                 examples={
                     "application/json": {
-                        "detail": "Password reset successful."
+                        "detail": "Password reset successful. You have been logged out of all devices."
                     }
                 }
             ),
@@ -695,6 +718,9 @@ class ResetPasswordView(APIView):
         # Check if the code has been blocked due to too many attempts
         if verification_code.is_blocked():
             return Response({"detail": "Too many incorrect attempts. Please try again later."}, status=status.HTTP_400_BAD_REQUEST)
+        # Ensure the new password is not the same as the current password
+        if check_password(new_password, user.password):
+            return Response({"detail": "New password cannot be the same as the current password."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Before updating the password, save the current hashed password to the password history
         if user.password:
@@ -710,5 +736,11 @@ class ResetPasswordView(APIView):
         # Check if the password history exceeds 6 records, delete the oldest
         if user.password_histories.count() > 6:
             user.password_histories.order_by('created_at').last().delete()
+        tokens = OutstandingToken.objects.filter(user=user)
+        for token in tokens:
+            BlacklistedToken.objects.get_or_create(token=token)
+        send_password_change_notification(user)
 
-        return Response({"detail": "Password reset successful."}, status=status.HTTP_200_OK)
+        return Response({"detail": "Password reset successful. You have been logged out of all devices."}, status=status.HTTP_200_OK)
+
+        

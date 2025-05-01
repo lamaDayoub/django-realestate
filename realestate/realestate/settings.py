@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'drf_yasg',
+    'corsheaders',
     'users',
 ]
 
@@ -55,6 +56,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
 ]
 
 ROOT_URLCONF = 'realestate.urls'
@@ -159,7 +161,9 @@ EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 DEFAULT_FROM_EMAIL=config('DEFAULT_FROM_EMAIL')
 PASSWORD_RESET_TIMEOUT=config('PASSWORD_RESET_TIMEOUT')
- 
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:8080",  # Flutter development server
+]
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -198,7 +202,7 @@ SIMPLE_JWT = {
 MEDIA_URL = config('MEDIA_URL')
 MEDIA_ROOT = config('MEDIA_ROOT')
 LANGUAGE_CODE = 'en-us'
-
+CORS_ALLOW_CREDENTIALS = True
 TIME_ZONE = 'UTC'
 
 USE_I18N = True

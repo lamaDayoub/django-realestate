@@ -66,3 +66,27 @@ def send_verification_email(user, purpose):
         [user.email],
         fail_silently=False,
     )
+
+
+
+def send_password_change_notification(user):
+    """
+    Sends a plain text email notification to the user when their password is changed.
+    """
+    subject = "Your Password Has Been Changed"
+    message = (
+        f"Hello from RealEstate,\n\n"
+        f"We noticed that your password has been changed. "
+        f"If it wasn't you, please let us know and contact us.\n\n"
+        f"Thank you,\n"
+        f"RealEstate Team"
+    )
+    
+    send_mail(
+        subject,
+        message,
+        settings.DEFAULT_FROM_EMAIL,
+        [user.email],
+        fail_silently=False,
+    )
+    

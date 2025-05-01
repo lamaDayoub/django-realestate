@@ -12,6 +12,7 @@ djangorestframework-simplejwt = "*"
 drf-yasg = "*"
 pillow = "*"
 python-decouple = "*"
+django-cors-headers = "*"
 
 [dev-packages]
 
