@@ -4,6 +4,7 @@ from rest_framework import status
 from djoser.conf import settings
 from django.contrib.auth import get_user_model
 from rest_framework.permissions import AllowAny
+from django.core.files.storage import default_storage
 from drf_yasg.utils import swagger_auto_schema
 from django.contrib.auth.hashers import check_password
 from .utils import send_verification_email,send_password_change_notification
@@ -465,6 +466,13 @@ class ProfileView(RetrieveUpdateAPIView):
 
         if serializer.is_valid():
             # Check if any fields were actually updated
+            new_photo = request.data.get('photo')
+            if new_photo and instance.photo:
+            # Construct the full path to the old photo
+                old_photo_path = instance.photo.name  # This already includes the custom directory path
+            # Delete the old photo file from storage
+                if default_storage.exists(old_photo_path):
+                    default_storage.delete(old_photo_path)
             if not serializer.has_changed():
                 return Response(
                     {"detail": "No changes were made."},
@@ -484,6 +492,39 @@ class ProfileView(RetrieveUpdateAPIView):
             {"detail": "Method PUT is not allowed. Use PATCH for partial updates."},
             status=status.HTTP_405_METHOD_NOT_ALLOWED
         )
+        
+    @swagger_auto_schema(
+    operation_id="delete_profile_photo",
+    operation_description="Delete the authenticated user's profile photo.",
+    responses={
+        204: openapi.Response(
+            description="Profile photo deleted successfully.",
+        ),
+        401: "Unauthorized. Authentication required.",
+        404: "Not Found. The user does not have a profile photo.",
+    }
+    )
+    def delete_photo(self, request, *args, **kwargs):
+        """
+        Delete the authenticated user's profile photo.
+        """
+        instance = self.get_object()
+        if not instance.photo:
+            return Response(
+                {"detail": "No profile photo to delete."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        # Delete the photo file from storage
+        instance.photo.delete(save=False)
+        # Set the photo field to null
+        instance.photo = None
+        instance.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)       
+    def delete(self, request, *args, **kwargs):
+        """
+        Route DELETE requests to the delete_photo method.
+        """
+        return self.delete_photo(request, *args, **kwargs)
         
 ##############3password#############
 
@@ -743,4 +784,84 @@ class ResetPasswordView(APIView):
 
         return Response({"detail": "Password reset successful. You have been logged out of all devices."}, status=status.HTTP_200_OK)
 
-        
+##############photot +isseller mode#####
+
+
+
+
+
+class ToggleSellerModeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_id="toggle_seller_mode",
+        operation_description="Toggle the 'is_seller' attribute for the authenticated user.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['is_seller'],
+            properties={
+                'is_seller': openapi.Schema(
+                    type=openapi.TYPE_BOOLEAN,
+                    description="Set to true to enable seller mode, false to disable."
+                ),
+            },
+        ),
+        responses={
+            200: openapi.Response(
+                description="Seller mode toggled successfully.",
+                examples={
+                    "application/json": {
+                        "is_seller": True
+                    }
+                }
+            ),
+            400: openapi.Response(
+                description="Bad request. Missing or invalid fields.",
+                examples={
+                    "application/json": {
+                        "detail": "is_seller field is required."
+                    }
+                }
+            ),
+            401: openapi.Response(
+                description="Unauthorized. Authentication credentials were not provided.",
+                examples={
+                    "application/json": {
+                        "detail": "Authentication credentials were not provided."
+                    }
+                }
+            ),
+        }
+    )
+    def patch(self, request):
+        """
+        Toggle the 'is_seller' attribute for the authenticated user.
+        """
+        # Extract the 'is_seller' value from the request body
+        is_seller = request.data.get('is_seller')
+    
+        # Validate that 'is_seller' is provided
+        if is_seller is None:
+            return Response(
+                {"detail": "is_seller field is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        #  Get the authenticated user
+        user = request.user
+
+        # Update the 'is_seller' attribute
+        try:
+            user.is_seller = is_seller
+            user.save()
+        except Exception as e:
+            return Response(
+                {"detail": "Failed to update is_seller status."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # Return the updated 'is_seller' status
+        return Response(
+            {"is_seller": user.is_seller},
+            status=status.HTTP_200_OK
+        )

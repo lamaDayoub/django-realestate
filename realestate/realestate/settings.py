@@ -199,8 +199,12 @@ SIMPLE_JWT = {
 }
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
-MEDIA_URL = config('MEDIA_URL')
-MEDIA_ROOT = config('MEDIA_ROOT')
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# Static files (CSS, JavaScript, Images)
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'static'
 LANGUAGE_CODE = 'en-us'
 CORS_ALLOW_CREDENTIALS = True
 TIME_ZONE = 'UTC'
@@ -213,8 +217,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
-STATIC_URL = config('STATIC_URL')
-MEDIA_ROOT = config('MEDIA_ROOT')
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
