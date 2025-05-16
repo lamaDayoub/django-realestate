@@ -5,7 +5,7 @@ from realestate import settings
 import uuid
 from datetime import timedelta
 from django.utils import timezone
-from django.conf import settings
+
 
 def user_directory_path(instance,filename):
     return f'userphotoes/user_{instance.id}/{filename}'
@@ -34,7 +34,12 @@ class User(AbstractUser):
     password=models.CharField(max_length=20)
     points = models.IntegerField(default=500)
     is_seller = models.BooleanField(default=False)
-
+    favorite_properties = models.ManyToManyField(
+    'properties.Property',  # Reference to the Property model
+    through='properties.FavoriteProperty',  # Use the intermediary table
+    related_name='favorited_by',  # Reverse relation name
+    blank=True  # Allow users to have no favorite properties
+   )
     groups = models.ManyToManyField(
         'auth.Group',
         verbose_name='groups',

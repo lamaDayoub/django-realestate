@@ -15,7 +15,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from .serializers import UserCreateSerializer,ProfileSerializer,ChangePasswordSerializer
+from .serializers import UserCreateSerializer,ProfileSerializer,ChangePasswordSerializer,ActivationStatusSerializer
 from .models import User,Profile,PasswordHistory,VerificationCode
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.parsers import MultiPartParser
@@ -25,7 +25,55 @@ from rest_framework_simplejwt.tokens import OutstandingToken, BlacklistedToken
 User = get_user_model()
 
 
+class CheckActivationStatusView(APIView):
+    permission_classes = []  # Allow any user to check activation status
 
+    @swagger_auto_schema(
+        operation_id="check_activation_status",
+        operation_description="Check if a user is activated based on their email.",
+        request_body=ActivationStatusSerializer,
+        responses={
+            200: openapi.Response(
+                description="Activation status retrieved successfully.",
+                examples={
+                    "application/json": {
+                        "exists": True,
+                        "is_activated": True
+                    }
+                }
+            ),
+            400: openapi.Response(
+                description="Bad request. Missing or invalid fields.",
+                examples={
+                    "application/json": {
+                        "email": ["This field is required."]
+                    }
+                }
+            )
+        }
+    )
+    def post(self, request):
+        # Validate the input using the serializer
+        serializer = ActivationStatusSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        email = serializer.validated_data['email']
+
+        # Check if the user exists
+        try:
+            user = User.objects.get(email=email)
+            exists = True
+            is_activated = user.is_active  # Check if the user is activated
+        except User.DoesNotExist:
+            exists = False
+            is_activated = False
+
+        # Return the response
+        return Response(
+            {"exists": exists, "is_activated": is_activated},
+            status=status.HTTP_200_OK
+        )
 
 class SignUpView(APIView):
     authentication_classes = [JWTAuthentication]

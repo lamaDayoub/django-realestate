@@ -126,3 +126,8 @@ class ChangePasswordSerializer(serializers.Serializer):
                 raise serializers.ValidationError("You cannot reuse any of your last 6 passwords")
                 
         return value
+    
+
+
+class ActivationStatusSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)

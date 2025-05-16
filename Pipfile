@@ -13,6 +13,7 @@ drf-yasg = "*"
 pillow = "*"
 python-decouple = "*"
 django-cors-headers = "*"
+django-filter = "*"
 
 [dev-packages]
 
