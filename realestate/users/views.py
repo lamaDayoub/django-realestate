@@ -7,7 +7,8 @@ from rest_framework.permissions import AllowAny
 from django.core.files.storage import default_storage
 from drf_yasg.utils import swagger_auto_schema
 from django.contrib.auth.hashers import check_password
-from .utils import send_verification_email,send_password_change_notification
+from .utils import send_verification_email,send_password_change_notification,verify_code
+
 from drf_yasg import openapi
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .authentication.serializers import CustomTokenSerializer
@@ -166,42 +167,32 @@ class VerifyCodeView(APIView):
     def post(self, request):
         email = request.data.get('email')
         code = request.data.get('code')
-        purpose = request.data.get('purpose')  # 'activation' or 'password_reset'
+        purpose = request.data.get('purpose')
 
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        # Use the utility function
+        result = verify_code(email, code, purpose)
+        
+        # If result is a Response (error), return it
+        if isinstance(result, Response):
+            return result
+        
+        # Otherwise, proceed with success logic
+        user, verification = result
 
-        try:
-            verification = VerificationCode.objects.filter(user=user, purpose=purpose).latest('created_at')
-        except VerificationCode.DoesNotExist:
-            return Response({"detail": "No verification code found."}, status=status.HTTP_404_NOT_FOUND)
-
-        # Check expiry
-        if verification.is_expired():
-            return Response({"detail": "Code expired. Please request a new code."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Check if blocked
-        if verification.is_blocked():
-            return Response({"detail": "Too many wrong attempts. Please request a new code."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Check code
-        if verification.code != code:
-            verification.increase_attempts()
-            tries_left = verification.max_attempts - verification.attempts
-            return Response({"detail": f"Invalid code. {tries_left} tries left."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Correct code!
         if purpose == 'activation':
             user.is_active = True
             user.save()
         elif purpose == 'password_reset':
-            return Response({"detail": "Code verified. Now you can reset your password."})
+            return Response(
+                {"detail": "Code verified. Now you can reset your password."},
+                status=status.HTTP_200_OK
+            )
 
-        verification.delete()  # Clean up used code
-
-        return Response({"detail": "Verification successful."}, status=status.HTTP_200_OK)
+        verification.delete()  # Clean up
+        return Response(
+            {"detail": "Verification successful."}, 
+            status=status.HTTP_200_OK
+        )
 
 class CustomLoginView(TokenObtainPairView):
     authentication_classes=[JWTAuthentication]
@@ -660,69 +651,78 @@ class ChangePasswordView(GenericAPIView):
         send_password_change_notification(user)
 
         return Response({"message": "Password updated successfully. You have been logged out of all devices."}, status=status.HTTP_200_OK)
+      
 
-
-
-class ForgotPasswordView(APIView):
+class SendVerificationCodeView(APIView):
     permission_classes = [AllowAny]
-    
+
     @swagger_auto_schema(
-        operation_id="forgot_password",
-        operation_description="Initiates the password reset process by sending a verification code to the user's email. The user needs to provide their email address.",
+        operation_id="send_verification_code",
+        operation_description="Send a verification code to the user's email for account activation or password reset.",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
-            required=['email'],
+            required=['email', 'purpose'],
             properties={
-                'email': openapi.Schema(type=openapi.TYPE_STRING, description="The email address of the user requesting a password reset."),
+                'email': openapi.Schema(type=openapi.TYPE_STRING, description="The email address of the user."),
+                'purpose': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    enum=['activation', 'password_reset'],
+                    description="The purpose of the verification code (activation or password reset)."
+                ),
             },
         ),
         responses={
             200: openapi.Response(
-                description="Verification code sent to email.",
+                description="Verification code sent successfully.",
                 examples={
-                    'application/json': {
-                        'detail': 'Verification code sent to your email.',
+                    "application/json": {
+                        "detail": "Verification code sent to your email."
                     }
                 }
             ),
             400: openapi.Response(
-                description="Bad request, e.g., email is missing.",
+                description="Bad request, e.g., too many requests or invalid input.",
                 examples={
-                    'application/json': {
-                        'detail': 'Email is required.',
+                    "application/json": {
+                        "detail": "Too many requests. Please try again later."
                     }
                 }
             ),
             404: openapi.Response(
-                description="User with the provided email not found.",
+                description="User not found.",
                 examples={
-                    'application/json': {
-                        'detail': 'User with this email does not exist.',
+                    "application/json": {
+                        "detail": "User with this email does not exist."
                     }
                 }
             ),
         }
     )
-
     def post(self, request):
         email = request.data.get('email')
-        
-        # Check if the email is provided
-        if not email:
-            return Response({"detail": "Email is required."}, status=status.HTTP_400_BAD_REQUEST)
+        purpose = request.data.get('purpose')
+
+        # Validate inputs
+        if not email or not purpose:
+            return Response({"detail": "Email and purpose are required."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Check if the user exists
         try:
-            user = get_user_model().objects.get(email=email)
-        except get_user_model().DoesNotExist:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
             return Response({"detail": "User with this email does not exist."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Send verification email (code)
-        send_verification_email(user, purpose='password_reset')
+        # Ensure the purpose is valid
+        if purpose not in ['activation', 'password_reset']:
+            return Response({"detail": "Invalid purpose."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Send verification email and handle rate limiting
+        try:
+            send_verification_email(user, purpose)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"detail": "Verification code sent to your email."}, status=status.HTTP_200_OK)
-
-
 
 
 
@@ -788,25 +788,11 @@ class ResetPasswordView(APIView):
         if not email or not code or not new_password:
             return Response({"detail": "Email, code, and new password are required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check if the user exists
-        try:
-            user = get_user_model().objects.get(email=email)
-        except get_user_model().DoesNotExist:
-            return Response({"detail": "User with this email does not exist."}, status=status.HTTP_404_NOT_FOUND)
-
-        # Find the verification code for this user and purpose
-        try:
-            verification_code = VerificationCode.objects.get(user=user, code=code, purpose='password_reset')
-        except VerificationCode.DoesNotExist:
-            return Response({"detail": "Invalid verification code."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Check if the code has expired
-        if verification_code.is_expired():
-            return Response({"detail": "Verification code has expired."}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Check if the code has been blocked due to too many attempts
-        if verification_code.is_blocked():
-            return Response({"detail": "Too many incorrect attempts. Please try again later."}, status=status.HTTP_400_BAD_REQUEST)
+        result = verify_code(email, code, 'password_reset')
+        if isinstance(result, Response):
+            return result  # Return error if any
+        
+        user, verification = result
         # Ensure the new password is not the same as the current password
         if check_password(new_password, user.password):
             return Response({"detail": "New password cannot be the same as the current password."}, status=status.HTTP_400_BAD_REQUEST)
@@ -820,7 +806,7 @@ class ResetPasswordView(APIView):
         user.save()
 
         # Delete the used verification code after successful password reset
-        verification_code.delete()
+        verification.delete()
 
         # Check if the password history exceeds 6 records, delete the oldest
         if user.password_histories.count() > 6:
