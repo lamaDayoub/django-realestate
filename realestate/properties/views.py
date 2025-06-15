@@ -15,33 +15,169 @@ from .permissions import IsSeller
 from rest_framework.parsers import MultiPartParser
 from .filters import CaseInsensitiveSearchFilter
 import os
+from django.db.models import Q
 from django.conf import settings
+
+
 class PropertyListView(ListAPIView):
+    """
+    Advanced property search endpoint with flexible filtering options.
+    Supports case-insensitive search for cities and property types.
+    """
     queryset = Property.objects.all()
     serializer_class = PropertySerializer
     permission_classes = [AllowAny]
-    filter_backends = [DjangoFilterBackend, CaseInsensitiveSearchFilter, OrderingFilter]
-    filterset_fields = ['city', 'ptype', 'is_for_rent']  # Fields to filter by
-    search_fields = ['city', 'location_text']  # Fields to search by
-    ordering_fields = ['price', 'area']  # Fields to order by
-    pagination_class = PageNumberPagination  # Default pagination
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    
+    filterset_fields = {
+        'is_for_rent': ['exact'],
+    }
+    
+    search_fields = ['city', 'location_text']
+    ordering_fields = ['price', 'area', 'number_of_rooms']
+    ordering = ['-id']
 
     @swagger_auto_schema(
-        operation_id="list_properties",
-        operation_description="List all properties with optional filtering, searching, and pagination.",
+        operation_id="property_search",
+        operation_description="""
+        ## Advanced Property Search
+        
+        Search properties with powerful filtering capabilities.
+        All parameters are optional - combine them as needed.
+        
+        ### Examples:
+        1. All properties: `/properties/`
+        2. Villas in Damascus: `/properties/?types=villa&cities=damascus`
+        3. 2-3 bedroom flats: `/properties/?types=flat&min_rooms=2&max_rooms=3`
+        4. Properties under $300k: `/properties/?max_price=300000`
+        """,
         manual_parameters=[
-            openapi.Parameter('city', openapi.IN_QUERY, description="Filter properties by city.", type=openapi.TYPE_STRING),
-            openapi.Parameter('ptype', openapi.IN_QUERY, description="Filter properties by type.", type=openapi.TYPE_STRING),
-            openapi.Parameter('is_for_rent', openapi.IN_QUERY, description="Filter properties by rental status.", type=openapi.TYPE_BOOLEAN),
-            openapi.Parameter('search', openapi.IN_QUERY, description="Search properties by city or location text.", type=openapi.TYPE_STRING),
-            openapi.Parameter('ordering', openapi.IN_QUERY, description="Order results by price or area.", type=openapi.TYPE_STRING),
+            openapi.Parameter(
+                'types', 
+                openapi.IN_QUERY, 
+                description="Comma-separated property types (flat,villa,house)", 
+                type=openapi.TYPE_STRING,
+                example="villa,house"
+            ),
+            openapi.Parameter(
+                'cities', 
+                openapi.IN_QUERY, 
+                description="Comma-separated city names", 
+                type=openapi.TYPE_STRING,
+                example="damascus,tartous"
+            ),
+            openapi.Parameter(
+                'min_price', 
+                openapi.IN_QUERY, 
+                description="Minimum price in USD", 
+                type=openapi.TYPE_NUMBER,
+                example=100000
+            ),
+            openapi.Parameter(
+                'max_price', 
+                openapi.IN_QUERY, 
+                description="Maximum price in USD", 
+                type=openapi.TYPE_NUMBER,
+                example=500000
+            ),
+            openapi.Parameter(
+                'min_area', 
+                openapi.IN_QUERY, 
+                description="Minimum area in square meters", 
+                type=openapi.TYPE_NUMBER,
+                example=100
+            ),
+            openapi.Parameter(
+                'max_area', 
+                openapi.IN_QUERY, 
+                description="Maximum area in square meters", 
+                type=openapi.TYPE_NUMBER,
+                example=200
+            ),
+            openapi.Parameter(
+                'min_rooms', 
+                openapi.IN_QUERY, 
+                description="Minimum number of rooms", 
+                type=openapi.TYPE_INTEGER,
+                example=2
+            ),
+            openapi.Parameter(
+                'max_rooms', 
+                openapi.IN_QUERY, 
+                description="Maximum number of rooms", 
+                type=openapi.TYPE_INTEGER,
+                example=4
+            ),
+            openapi.Parameter(
+                'is_for_rent', 
+                openapi.IN_QUERY, 
+                description="Filter by rental status", 
+                type=openapi.TYPE_BOOLEAN,
+                example=False
+            ),
+            openapi.Parameter(
+                'search', 
+                openapi.IN_QUERY, 
+                description="Search in city or location text", 
+                type=openapi.TYPE_STRING,
+                example="beach view"
+            ),
+            openapi.Parameter(
+                'ordering', 
+                openapi.IN_QUERY, 
+                description="Order by fields (comma-separated). Prefix with '-' for descending", 
+                type=openapi.TYPE_STRING,
+                example="-price,area"
+            ),
         ],
         responses={
-            200: openapi.Response(description="Properties retrieved successfully.", schema=PropertySerializer(many=True)),
+            200: openapi.Response(
+                description="List of properties matching criteria",
+                schema=PropertySerializer(many=True)
+            )
         }
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
+
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        params = self.request.query_params
+        
+        # Case-insensitive property types filter
+        if 'types' in params:
+            types = [t.strip().lower() for t in params['types'].split(',') if t.strip()]
+            if types:
+                queryset = queryset.filter(
+                    Q(*[Q(ptype__iexact=type_name) for type_name in types], _connector=Q.OR)
+                )
+        
+        # Case-insensitive cities filter
+        if 'cities' in params:
+            cities = [c.strip() for c in params['cities'].split(',') if c.strip()]
+            if cities:
+                queryset = queryset.filter(
+                    Q(*[Q(city__iexact=city_name) for city_name in cities], _connector=Q.OR)
+                )
+        
+        # Numeric range filters
+        try:
+            if 'min_price' in params:
+                queryset = queryset.filter(price__gte=float(params['min_price']))
+            if 'max_price' in params:
+                queryset = queryset.filter(price__lte=float(params['max_price']))
+            if 'min_area' in params:
+                queryset = queryset.filter(area__gte=float(params['min_area']))
+            if 'max_area' in params:
+                queryset = queryset.filter(area__lte=float(params['max_area']))
+            if 'min_rooms' in params:
+                queryset = queryset.filter(number_of_rooms__gte=int(params['min_rooms']))
+            if 'max_rooms' in params:
+                queryset = queryset.filter(number_of_rooms__lte=int(params['max_rooms']))
+        except (ValueError, TypeError):
+            pass
+        
+        return queryset
     
 class PropertyDetailView(APIView):
     permission_classes = [AllowAny]
@@ -68,19 +204,32 @@ class AddPropertyView(APIView):
 
     @swagger_auto_schema(
         operation_id="add_property",
-        operation_description="Add a new property. Only users in seller mode can perform this action.",
+        operation_description="""
+        Add a new property. 
+        Only users in seller mode can perform this action.
+        Property must be unique (combination of type, city, area, and price).
+        """,
         request_body=PropertySerializer,
         responses={
-            201: openapi.Response(description="Property created successfully.", schema=PropertySerializer),
-            400: "Bad request. Invalid data provided.",
-            403: "Forbidden. You must be in seller mode to add a property."
+            201: openapi.Response("Property created", PropertySerializer),
+            400: openapi.Response("Bad request", examples={
+                "application/json": {
+                    "non_field_errors": ["You already have a similar property listed."]
+                }
+            }),
+            403: "Forbidden. You must be in seller mode."
         }
     )
     def post(self, request):
-        serializer = PropertySerializer(data=request.data, context={'request': request})
+        serializer = PropertySerializer(
+            data=request.data,
+            context={'request': request}
+        )
+        
         if serializer.is_valid():
             serializer.save(owner=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+            
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 class EditPropertyView(APIView):

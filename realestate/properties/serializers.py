@@ -31,6 +31,24 @@ class PropertySerializer(CoordinateValidationMixin,serializers.ModelSerializer):
             'longitude',
             'main_photo',  # Include the main photo URL
         ]
+        extra_kwargs = {
+            'owner': {'read_only': True}
+        }
+    def validate(self, data):
+        # Check for existing similar properties
+        existing = Property.objects.filter(
+            owner=self.context['request'].user,
+            ptype=data.get('ptype'),
+            city=data.get('city'),
+            area=data.get('area'),
+            price=data.get('price')
+        ).exists()
+        
+        if existing:
+            raise serializers.ValidationError(
+                "You already have a similar property listed with these exact details."
+            )
+        return data
         
     def get_main_photo(self, obj):
         # Get the first image for the property, if any

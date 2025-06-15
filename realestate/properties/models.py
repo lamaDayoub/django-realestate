@@ -40,7 +40,13 @@ class Property(models.Model):
         through='PropertyFacility',
         related_name='properties'
     )
-    
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['owner', 'ptype', 'city', 'area', 'price'],
+                name='unique_property'
+            )
+        ]
     def __str__(self):
         return f"{self.ptype} in {self.city} ({'For Rent' if self.is_for_rent else 'For Sale'})"
     
