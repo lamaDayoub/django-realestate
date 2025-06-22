@@ -17,7 +17,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from .serializers import UserCreateSerializer,ProfileSerializer,ChangePasswordSerializer,ActivationStatusSerializer
-from .models import User,Profile,PasswordHistory,VerificationCode
+from .models import Profile,PasswordHistory,VerificationCode
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.parsers import MultiPartParser
 from .serializers import ProfileSerializer,PublicProfileSerializer

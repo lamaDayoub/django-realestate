@@ -33,6 +33,7 @@ ALLOWED_HOSTS = config('ALLOWED_HOSTS', cast=lambda v: [s.strip() for s in v.spl
 # Application definition
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -44,10 +45,12 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
     'drf_yasg',
+    'core',
     'corsheaders',
     'django_filters',
     'users',
     'properties',
+    'chat',
 ]
 
 MIDDLEWARE = [
@@ -59,6 +62,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'core.middleware.timezone.DamascusTimezoneMiddleware',
 ]
 
 ROOT_URLCONF = 'realestate.urls'
@@ -77,11 +81,10 @@ TEMPLATES = [
             ],
         },
     },
-]
+] 
+#WSGI_APPLICATION = 'realestate.wsgi.application'
 
-WSGI_APPLICATION = 'realestate.wsgi.application'
-
-
+ASGI_APPLICATION = 'realestate.asgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
@@ -193,7 +196,7 @@ LOGGING = {
     },
 }
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=4),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=9),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
@@ -206,6 +209,11 @@ SIMPLE_JWT = {
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
 }
+CHANNEL_LAYERS = {
+    'default': {
+        "BACKEND" :"channels.layers.InMemoryChannelLayer", 
+    }
+}
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
 MEDIA_URL = '/media/'
@@ -216,13 +224,14 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'static'
 LANGUAGE_CODE = 'en-us'
 CORS_ALLOW_CREDENTIALS = True
-TIME_ZONE = 'UTC'
+
 
 USE_I18N = True
 
-USE_TZ = True
 
 
+TIME_ZONE = 'Asia/Damascus'
+USE_TZ = True 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 

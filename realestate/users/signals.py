@@ -1,6 +1,6 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from .models import User
+
 from .utils import send_verification_email  # Will create it
 from django.contrib.auth import get_user_model
 

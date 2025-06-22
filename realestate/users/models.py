@@ -34,6 +34,8 @@ class User(AbstractUser):
     password=models.CharField(max_length=20)
     points = models.IntegerField(default=500)
     is_seller = models.BooleanField(default=False)
+    last_seen = models.DateTimeField(null=True, blank=True)
+    is_online = models.BooleanField(default=False)
     favorite_properties = models.ManyToManyField(
     'properties.Property',  # Reference to the Property model
     through='properties.FavoriteProperty',  # Use the intermediary table
@@ -61,6 +63,12 @@ class User(AbstractUser):
     REQUIRED_FIELDS = []  # No additional required fields
 
     objects = UserManager()
+    def update_status(self, online):
+        """Simple status updater"""
+        self.is_online = online
+        if not online:
+            self.last_seen = timezone.now()
+        self.save(update_fields=['is_online', 'last_seen'])
 
     def __str__(self):
         return self.email
