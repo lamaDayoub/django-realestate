@@ -11,7 +11,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
-
+from notifications.tasks import send_new_message_email 
 User = get_user_model()
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -324,6 +324,32 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 message.content = file_url 
                 
         message.save()
+        # --- NEW: Check recipient status and dispatch email task conditionally ---
+        # Get the recipient user from the conversation
+        recipient_user = conversation.get_other_participant(self.user)
+
+        # Check if recipient is NOT online (is_online is True if connected via WS)
+        if not recipient_user.is_online: 
+            preview_content = ""
+            if message.message_type == Message.MessageType.TEXT:
+                preview_content = message.content[:100] + ('...' if len(message.content) > 100 else '') 
+            elif message.message_type == Message.MessageType.IMAGE:
+                preview_content = "an image attachment"
+            elif message.message_type == Message.MessageType.PDF:
+                preview_content = "a PDF attachment"
+            else:
+                preview_content = "an attachment"
+
+            send_new_message_email.delay(
+                recipient_user.id,
+                self.user.id,
+                preview_content
+            )
+            print(f"Dispatched email task to {recipient_user.email} (offline).")
+        # --- END NEW ---
+
+        print(f"DEBUG: Message saved. Message ID: {message.id}, File field: '{message.file.name}' (empty if no file)")
+        
         return message
 
     @database_sync_to_async

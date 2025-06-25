@@ -1,45 +1,58 @@
 # docker-compose.yml
-version: '3.8'
+version: '3.8' # Keep this version line. The warning is just informational.
 
 services:
+  # --- NEW: Redis service for Celery broker ---
+  redis:
+    image: redis:7-alpine # Use a lightweight Redis image
+    ports:
+      - "6379:6379" # Expose Redis port if you want to access it directly from host (optional for internal Docker use)
+    #volumes: # Uncomment if you want Redis data to persist across container restarts (e.g., when trying out Celery Beat)
+    #  redis_data:/data 
+
   # Service for HTTP API and Static Files (Django's runserver)
   django_http:
-    build: . # Build from the Dockerfile in the current (root) directory
-    # The command runs manage.py from /app/realestate, which is the WORKDIR in Dockerfile
-    command: python manage.py runserver 0.0.0.0:8000
+    build: . # Build from the Dockerfile in the current directory
+    command: python manage.py runserver 0.0.0.0:8000 # Command to run HTTP server
     volumes:
-      # Mount the host's 'realestate' subdirectory to the container's '/app/realestate'
-      - ./realestate:/app/realestate 
-      # Mount media_data volume to the media folder INSIDE the realestate project
-      - media_data:/app/realestate/media 
+      - ./realestate:/app/realestate # Mount the host's 'realestate' subdirectory into the container
+      - media_data:/app/realestate/media # Persist media files (user uploads)
     ports:
       - "8000:8000" # Map host port 8000 to container port 8000
     env_file:
-      # The .env file is INSIDE the realestate subdirectory
-      - ./realestate/.env 
-    # Since you're using SQLite, no separate DB service is needed right now.
-    # depends_on:
-    #   - db # Uncomment if you add a database service later
+      - ./realestate/.env # Load environment variables from .env file
+    depends_on:
+      - redis # <--- NEW: Depend on Redis (django_http needs Redis for Celery tasks eventually)
 
   # Service for WebSocket connections (Daphne)
   django_websocket:
-    build: . # Build from the Dockerfile in the current (root) directory
-    # The command runs daphne from /app/realestate
-    command: daphne -b 0.0.0.0 -p 8001 realestate.asgi:application
+    build: . # Build from the Dockerfile in the current directory
+    command: daphne -b 0.0.0.0 -p 8001 realestate.asgi:application # Command to run Daphne
     volumes:
-      # Mount the host's 'realestate' subdirectory to the container's '/app/realestate'
-      - ./realestate:/app/realestate
-      # Share media files volume with http service
-      - media_data:/app/realestate/media
+      - ./realestate:/app/realestate # Mount the host's 'realestate' subdirectory into the container
+      - media_data:/app/realestate/media # Share media files volume with http service
     ports:
       - "8001:8001" # Map host port 8001 to container port 8001
     env_file:
-      # The .env file is INSIDE the realestate subdirectory
-      - ./realestate/.env 
+      - ./realestate/.env # Load environment variables from .env file
     depends_on:
-      - django_http # Ensures HTTP server is ready before WS attempts connections (good practice)
-    # Since you're using InMemoryChannelLayer, no Redis dependency needed here.
+      - django_http # Ensures HTTP server is up if WebSocket requires it
+      - redis # <--- NEW: Depend on Redis (even if Channels uses InMemoryLayer, good for futureproofing)
+
+  # --- NEW: Celery Worker Service ---
+  celery_worker:
+    build: . # Build from the same Dockerfile
+    command: celery -A realestate worker -l info # Command to run Celery worker. realestate is your project name.
+    volumes:
+      - ./realestate:/app/realestate # Mount the Django project code for the worker
+    env_file:
+      - ./realestate/.env # Load environment variables
+    depends_on:
+      - redis # <--- Worker absolutely depends on the Redis broker
+      - django_http # Worker should wait for Django app to be ready (DB, models loaded)
+    # This service typically does not need to expose any ports to the host
 
 # Define volumes for persistent data
 volumes:
   media_data: # This volume will store user-uploaded media files persistently
+  # redis_data: # Uncomment if you enabled redis_data volume in the redis service above

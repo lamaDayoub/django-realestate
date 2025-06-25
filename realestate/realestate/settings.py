@@ -51,6 +51,9 @@ INSTALLED_APPS = [
     'users',
     'properties',
     'chat',
+    'django_celery_results',
+    'django_celery_beat',
+    'notifications',
 ]
 
 MIDDLEWARE = [
@@ -176,6 +179,14 @@ PASSWORD_RESET_TIMEOUT=config('PASSWORD_RESET_TIMEOUT')
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:8080",  # Flutter development server
 ]
+#CELERY
+CELERY_BROKER_URL = 'redis://redis:6379/0' # 'redis' is the service name in docker-compose.yml
+CELERY_RESULT_BACKEND = 'django-db'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Asia/Damascus' # Or match your TIME_ZONE setting
+CELERY_BEAT_SCHEDULE = {}
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
