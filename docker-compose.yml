@@ -1,0 +1,45 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  # Service for HTTP API and Static Files (Django's runserver)
+  django_http:
+    build: . # Build from the Dockerfile in the current (root) directory
+    # The command runs manage.py from /app/realestate, which is the WORKDIR in Dockerfile
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      # Mount the host's 'realestate' subdirectory to the container's '/app/realestate'
+      - ./realestate:/app/realestate 
+      # Mount media_data volume to the media folder INSIDE the realestate project
+      - media_data:/app/realestate/media 
+    ports:
+      - "8000:8000" # Map host port 8000 to container port 8000
+    env_file:
+      # The .env file is INSIDE the realestate subdirectory
+      - ./realestate/.env 
+    # Since you're using SQLite, no separate DB service is needed right now.
+    # depends_on:
+    #   - db # Uncomment if you add a database service later
+
+  # Service for WebSocket connections (Daphne)
+  django_websocket:
+    build: . # Build from the Dockerfile in the current (root) directory
+    # The command runs daphne from /app/realestate
+    command: daphne -b 0.0.0.0 -p 8001 realestate.asgi:application
+    volumes:
+      # Mount the host's 'realestate' subdirectory to the container's '/app/realestate'
+      - ./realestate:/app/realestate
+      # Share media files volume with http service
+      - media_data:/app/realestate/media
+    ports:
+      - "8001:8001" # Map host port 8001 to container port 8001
+    env_file:
+      # The .env file is INSIDE the realestate subdirectory
+      - ./realestate/.env 
+    depends_on:
+      - django_http # Ensures HTTP server is ready before WS attempts connections (good practice)
+    # Since you're using InMemoryChannelLayer, no Redis dependency needed here.
+
+# Define volumes for persistent data
+volumes:
+  media_data: # This volume will store user-uploaded media files persistently
