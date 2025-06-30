@@ -306,7 +306,7 @@ class PublicProfileView(APIView):
         Retrieve a user's public profile by user ID.
         """
         try:
-            user = User.objects.get(pk=user_id)
+            user = User.objects.select_related('profile').get(pk=user_id)
             profile = user.profile
         except (User.DoesNotExist, Profile.DoesNotExist):
             return Response(
@@ -344,7 +344,7 @@ class ProfileView(RetrieveUpdateAPIView):
         """
         Retrieve or create the user's profile.
         """
-        profile, created = Profile.objects.get_or_create(user=self.request.user)
+        profile, created = Profile.objects.select_related('user').get_or_create(user=self.request.user)
         return profile
 
     @swagger_auto_schema(

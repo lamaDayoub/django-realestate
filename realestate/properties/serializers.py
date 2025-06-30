@@ -21,9 +21,11 @@ class PropertySerializer(CoordinateValidationMixin,serializers.ModelSerializer):
         fields = [
             'id',
             'owner',
+            'active',
             'ptype',
             'city',
             'number_of_rooms',
+            'bathrooms',
             'area',
             'price',
             'is_for_rent',
@@ -119,10 +121,12 @@ class PropertyDetailSerializer(CoordinateValidationMixin,serializers.ModelSerial
         model = Property
         fields = [
             'id',
+            'active',
             'owner',
             'ptype',
             'city',
             'number_of_rooms',
+            'bathrooms',
             'area',
             'location_text',
             'price',
@@ -132,4 +136,5 @@ class PropertyDetailSerializer(CoordinateValidationMixin,serializers.ModelSerial
             'longitude',
             'facilities',
             'images',
+            
         ]

@@ -3,12 +3,12 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
-from django.db.models import Q 
+from django.db.models import Q , Max, Subquery, OuterRef
 from django.utils import timezone
 from drf_yasg.utils import swagger_auto_schema, no_body # Import no_body for clarity
 from drf_yasg import openapi
 from .models import Conversation, Message 
-
+from django.db import models
 # ... (rest of your imports, e.g., from .serializers) ...
 from .serializers import (
     ConversationListSerializer, 
@@ -86,28 +86,47 @@ class ConversationListView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
+
+        # --- OPTIMIZED QUERY FOR LAST MESSAGE AND UNREAD COUNT ---
+        # 1. Define a Subquery to get the last message for each conversation
+        last_message_subquery = Message.objects.filter(
+            conversation=OuterRef('pk')
+        ).order_by('-created_at').values('id', 'content', 'message_type', 'is_read', 'created_at')[:1]
+
+        # 2. Define a Subquery to count unread messages from the OTHER participant
+        unread_count_subquery = Message.objects.filter(
+            conversation=OuterRef('pk'),
+            sender__in=Subquery(
+                User.objects.filter(
+                    Q(conversations_as_p1=OuterRef('pk')) | Q(conversations_as_p2=OuterRef('pk'))
+                ).exclude(id=user.id).values('pk')[:1] # Get the other user's ID
+            ),
+            is_read=False
+        ).order_by().values('conversation').annotate(count=models.Count('pk')).values('count')
+
+        # 3. Build the final queryset with both annotations
         queryset = Conversation.objects.filter(
             Q(participant1=user) | Q(participant2=user)
+        ).annotate(
+            # Annotate the queryset with the last message's ID, content, etc.
+            last_message_id=Subquery(last_message_subquery.values('id')),
+            last_message_content=Subquery(last_message_subquery.values('content')),
+            last_message_type=Subquery(last_message_subquery.values('message_type')),
+            last_message_is_read=Subquery(last_message_subquery.values('is_read')),
+            last_message_created_at=Subquery(last_message_subquery.values('created_at')),
+
+            # Annotate the queryset with the unread count
+            unread_count=Subquery(unread_count_subquery, output_field=models.IntegerField()),
         ).select_related(
             'participant1__profile', 
             'participant2__profile'
-        ).order_by('-updated_at')
+        ).order_by('-updated_at') # Order by last updated conversation
+
         return queryset
 
-    @swagger_auto_schema(
-        operation_description="Retrieve a list of all conversations for the authenticated user, including other participant details, last message summary, and unread message count.",
-        responses={
-            200: openapi.Response(
-                description="List of conversations retrieved successfully.",
-                schema=ConversationListSerializer(many=True),
-            ),
-            401: "Unauthorized. Authentication required."
-        },
-        security=[{'Bearer': []}]
-    )
+    @swagger_auto_schema(...) # Keep your existing swagger_auto_schema
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
-
 # --- API endpoint for Retrieving Messages in a Conversation ---
 class ConversationDetailView(generics.ListAPIView):
     """

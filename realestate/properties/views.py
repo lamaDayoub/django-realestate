@@ -17,149 +17,261 @@ from .filters import CaseInsensitiveSearchFilter
 import os
 from django.db.models import Q
 from django.conf import settings
+from rest_framework import generics
 
 
+# class PropertyListView(ListAPIView):
+#     """
+#     Advanced property search endpoint with flexible filtering options.
+#     Supports case-insensitive search for cities and property types.
+#     """
+#     queryset = Property.objects.all()
+#     serializer_class = PropertySerializer
+#     permission_classes = [AllowAny]
+#     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    
+#     filterset_fields = {
+#         'is_for_rent': ['exact'],
+#     }
+    
+#     search_fields = ['city', 'location_text']
+#     ordering_fields = ['price', 'area', 'number_of_rooms', 'bathrooms']
+#     ordering = ['-id']
+
+#     @swagger_auto_schema(
+#         operation_id="property_search",
+#         operation_description="""
+#         ## Advanced Property Search
+        
+#         Search properties with powerful filtering capabilities.
+#         All parameters are optional - combine them as needed.
+        
+#         ### Examples:
+#         1. All properties: `/properties/`
+#         2. Villas in Damascus: `/properties/?types=villa&cities=damascus`
+#         3. 2-3 bedroom flats: `/properties/?types=flat&min_rooms=2&max_rooms=3`
+#         4. Properties under $300k: `/properties/?max_price=300000`
+#         """,
+#         manual_parameters=[
+#             openapi.Parameter(
+#                 'types', 
+#                 openapi.IN_QUERY, 
+#                 description="Comma-separated property types (flat,villa,house)", 
+#                 type=openapi.TYPE_STRING,
+#                 example="villa,house"
+#             ),
+#             openapi.Parameter(
+#                 'cities', 
+#                 openapi.IN_QUERY, 
+#                 description="Comma-separated city names", 
+#                 type=openapi.TYPE_STRING,
+#                 example="damascus,tartous"
+#             ),
+#             openapi.Parameter(
+#                 'min_price', 
+#                 openapi.IN_QUERY, 
+#                 description="Minimum price in USD", 
+#                 type=openapi.TYPE_NUMBER,
+#                 example=100000
+#             ),
+#             openapi.Parameter(
+#                 'max_price', 
+#                 openapi.IN_QUERY, 
+#                 description="Maximum price in USD", 
+#                 type=openapi.TYPE_NUMBER,
+#                 example=500000
+#             ),
+#             openapi.Parameter(
+#                 'min_area', 
+#                 openapi.IN_QUERY, 
+#                 description="Minimum area in square meters", 
+#                 type=openapi.TYPE_NUMBER,
+#                 example=100
+#             ),
+#             openapi.Parameter(
+#                 'max_area', 
+#                 openapi.IN_QUERY, 
+#                 description="Maximum area in square meters", 
+#                 type=openapi.TYPE_NUMBER,
+#                 example=200
+#             ),
+#             openapi.Parameter(
+#                 'min_rooms', 
+#                 openapi.IN_QUERY, 
+#                 description="Minimum number of rooms", 
+#                 type=openapi.TYPE_INTEGER,
+#                 example=2
+#             ),
+#             openapi.Parameter(
+#                 'max_rooms', 
+#                 openapi.IN_QUERY, 
+#                 description="Maximum number of rooms", 
+#                 type=openapi.TYPE_INTEGER,
+#                 example=4
+#             ),
+#             openapi.Parameter(
+#                 'min_bathrooms', 
+#                 openapi.IN_QUERY, 
+#                 description="Minimum number of bathrooms", 
+#                 type=openapi.TYPE_INTEGER,
+#                 example=2
+#             ),
+#             openapi.Parameter(
+#                 'max_bathrooms', 
+#                 openapi.IN_QUERY, 
+#                 description="Maximum number of bathrooms", 
+#                 type=openapi.TYPE_INTEGER,
+#                 example=4
+#             ),
+#             openapi.Parameter(
+#                 'is_for_rent', 
+#                 openapi.IN_QUERY, 
+#                 description="Filter by rental status", 
+#                 type=openapi.TYPE_BOOLEAN,
+#                 example=False
+#             ),
+#             openapi.Parameter(
+#                 'search', 
+#                 openapi.IN_QUERY, 
+#                 description="Search in city or location text", 
+#                 type=openapi.TYPE_STRING,
+#                 example="beach view"
+#             ),
+#             openapi.Parameter(
+#                 'ordering', 
+#                 openapi.IN_QUERY, 
+#                 description="Order by fields (comma-separated). Prefix with '-' for descending", 
+#                 type=openapi.TYPE_STRING,
+#                 example="-price,area"
+#             ),
+#         ],
+#         responses={
+#             200: openapi.Response(
+#                 description="List of properties matching criteria",
+#                 schema=PropertySerializer(many=True)
+#             )
+#         }
+#     )
+#     def get(self, request, *args, **kwargs):
+#         return super().get(request, *args, **kwargs)
+
+#     def filter_queryset(self, queryset):
+#         queryset = super().filter_queryset(queryset)
+#         params = self.request.query_params
+        
+#         # Case-insensitive property types filter
+#         if 'types' in params:
+#             types = [t.strip().lower() for t in params['types'].split(',') if t.strip()]
+#             if types:
+#                 queryset = queryset.filter(
+#                     Q(*[Q(ptype__iexact=type_name) for type_name in types], _connector=Q.OR)
+#                 )
+        
+#         # Case-insensitive cities filter
+#         if 'cities' in params:
+#             cities = [c.strip() for c in params['cities'].split(',') if c.strip()]
+#             if cities:
+#                 queryset = queryset.filter(
+#                     Q(*[Q(city__iexact=city_name) for city_name in cities], _connector=Q.OR)
+#                 )
+        
+#         # Numeric range filters
+#         try:
+#             if 'min_price' in params:
+#                 queryset = queryset.filter(price__gte=float(params['min_price']))
+#             if 'max_price' in params:
+#                 queryset = queryset.filter(price__lte=float(params['max_price']))
+#             if 'min_area' in params:
+#                 queryset = queryset.filter(area__gte=float(params['min_area']))
+#             if 'max_area' in params:
+#                 queryset = queryset.filter(area__lte=float(params['max_area']))
+#             if 'min_rooms' in params:
+#                 queryset = queryset.filter(number_of_rooms__gte=int(params['min_rooms']))
+#             if 'max_rooms' in params:
+#                 queryset = queryset.filter(number_of_rooms__lte=int(params['max_rooms']))
+#             if 'min_bathrooms' in params:
+#                 queryset = queryset.filter(bathrooms__gte=int(params['min_bathrooms']))
+#             if 'max_bathrooms' in params:
+#                 queryset = queryset.filter(bathrooms__lte=int(params['max_bathrooms']))
+#         except (ValueError, TypeError):
+#             pass
+        
+#         return queryset
+    
 class PropertyListView(ListAPIView):
     """
     Advanced property search endpoint with flexible filtering options.
-    Supports case-insensitive search for cities and property types.
+    Supports filtering by authenticated owner and various query parameters.
     """
-    queryset = Property.objects.all()
     serializer_class = PropertySerializer
-    permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    
+
     filterset_fields = {
         'is_for_rent': ['exact'],
+        'active': ['exact'],
     }
-    
-    search_fields = ['city', 'location_text']
-    ordering_fields = ['price', 'area', 'number_of_rooms']
-    ordering = ['-id']
 
-    @swagger_auto_schema(
-        operation_id="property_search",
-        operation_description="""
-        ## Advanced Property Search
-        
-        Search properties with powerful filtering capabilities.
-        All parameters are optional - combine them as needed.
-        
-        ### Examples:
-        1. All properties: `/properties/`
-        2. Villas in Damascus: `/properties/?types=villa&cities=damascus`
-        3. 2-3 bedroom flats: `/properties/?types=flat&min_rooms=2&max_rooms=3`
-        4. Properties under $300k: `/properties/?max_price=300000`
-        """,
-        manual_parameters=[
-            openapi.Parameter(
-                'types', 
-                openapi.IN_QUERY, 
-                description="Comma-separated property types (flat,villa,house)", 
-                type=openapi.TYPE_STRING,
-                example="villa,house"
-            ),
-            openapi.Parameter(
-                'cities', 
-                openapi.IN_QUERY, 
-                description="Comma-separated city names", 
-                type=openapi.TYPE_STRING,
-                example="damascus,tartous"
-            ),
-            openapi.Parameter(
-                'min_price', 
-                openapi.IN_QUERY, 
-                description="Minimum price in USD", 
-                type=openapi.TYPE_NUMBER,
-                example=100000
-            ),
-            openapi.Parameter(
-                'max_price', 
-                openapi.IN_QUERY, 
-                description="Maximum price in USD", 
-                type=openapi.TYPE_NUMBER,
-                example=500000
-            ),
-            openapi.Parameter(
-                'min_area', 
-                openapi.IN_QUERY, 
-                description="Minimum area in square meters", 
-                type=openapi.TYPE_NUMBER,
-                example=100
-            ),
-            openapi.Parameter(
-                'max_area', 
-                openapi.IN_QUERY, 
-                description="Maximum area in square meters", 
-                type=openapi.TYPE_NUMBER,
-                example=200
-            ),
-            openapi.Parameter(
-                'min_rooms', 
-                openapi.IN_QUERY, 
-                description="Minimum number of rooms", 
-                type=openapi.TYPE_INTEGER,
-                example=2
-            ),
-            openapi.Parameter(
-                'max_rooms', 
-                openapi.IN_QUERY, 
-                description="Maximum number of rooms", 
-                type=openapi.TYPE_INTEGER,
-                example=4
-            ),
-            openapi.Parameter(
-                'is_for_rent', 
-                openapi.IN_QUERY, 
-                description="Filter by rental status", 
-                type=openapi.TYPE_BOOLEAN,
-                example=False
-            ),
-            openapi.Parameter(
-                'search', 
-                openapi.IN_QUERY, 
-                description="Search in city or location text", 
-                type=openapi.TYPE_STRING,
-                example="beach view"
-            ),
-            openapi.Parameter(
-                'ordering', 
-                openapi.IN_QUERY, 
-                description="Order by fields (comma-separated). Prefix with '-' for descending", 
-                type=openapi.TYPE_STRING,
-                example="-price,area"
-            ),
-        ],
-        responses={
-            200: openapi.Response(
-                description="List of properties matching criteria",
-                schema=PropertySerializer(many=True)
-            )
-        }
-    )
-    def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
+    search_fields = ['city', 'location_text']
+    ordering_fields = ['price', 'area', 'number_of_rooms', 'bathrooms']
+    ordering = ['-id'] # Default ordering
+    def get_permissions(self):
+        """
+        Instantiates and returns the list of permissions that this view requires.
+        If 'mine=true' is in query params, require IsAuthenticated and IsSeller.
+        Otherwise, allow any.
+        """
+        mine_filter = self.request.query_params.get('mine', 'false').lower()
+        if mine_filter == 'true':
+            # If 'mine=true', user must be authenticated AND be a seller (owner)
+            return [IsAuthenticated(), IsSeller()] # <--- Changed permission logic
+        else:
+            # Otherwise, allow any user to see general public listings
+            return [AllowAny()]
+    def get_queryset(self):
+        """
+        This view now returns a queryset filtered by 'owner=me' or all active properties.
+        """
+        user = self.request.user
+        # Get the 'mine' query parameter
+        mine_filter = self.request.query_params.get('mine', 'false')
+
+        # --- User's custom logic implemented here ---
+        if mine_filter.lower() == 'true':
+            # Return only properties owned by the authenticated user
+            # We can assume the user is authenticated due to permission_classes = [IsAuthenticated]
+            queryset = Property.objects.filter(owner=user)
+        else:
+            # Return all active properties for the general listing
+            queryset = Property.objects.filter(active=True)
+        # --- End custom logic ---
+
+        # Prefetch images for efficiency to avoid N+1 queries
+        return queryset.prefetch_related('images')
 
     def filter_queryset(self, queryset):
+        """
+        This custom method applies the more complex comma-separated filters
+        on top of the base queryset from get_queryset.
+        """
+        # First, get the base queryset from `get_queryset` (which is already filtered by `owner` if applicable)
         queryset = super().filter_queryset(queryset)
         params = self.request.query_params
-        
-        # Case-insensitive property types filter
+
+        # --- Custom filtering logic adapted from your original PropertyListView ---
         if 'types' in params:
             types = [t.strip().lower() for t in params['types'].split(',') if t.strip()]
             if types:
                 queryset = queryset.filter(
                     Q(*[Q(ptype__iexact=type_name) for type_name in types], _connector=Q.OR)
                 )
-        
-        # Case-insensitive cities filter
+
         if 'cities' in params:
             cities = [c.strip() for c in params['cities'].split(',') if c.strip()]
             if cities:
                 queryset = queryset.filter(
                     Q(*[Q(city__iexact=city_name) for city_name in cities], _connector=Q.OR)
                 )
-        
+
         # Numeric range filters
         try:
             if 'min_price' in params:
@@ -174,10 +286,64 @@ class PropertyListView(ListAPIView):
                 queryset = queryset.filter(number_of_rooms__gte=int(params['min_rooms']))
             if 'max_rooms' in params:
                 queryset = queryset.filter(number_of_rooms__lte=int(params['max_rooms']))
+            if 'min_bathrooms' in params:
+                queryset = queryset.filter(bathrooms__gte=int(params['min_bathrooms']))
+            if 'max_bathrooms' in params:
+                queryset = queryset.filter(bathrooms__lte=int(params['max_bathrooms']))
         except (ValueError, TypeError):
             pass
-        
+
         return queryset
+
+    @swagger_auto_schema(
+        operation_description="""
+        ## Advanced Property Search
+
+        Search properties with powerful filtering capabilities.
+        All parameters are optional - combine them as needed.
+
+        ### Filtering by Owner:
+        - To see properties you own, use the `mine=true` parameter with a valid JWT token.
+
+        ### Examples:
+        1. All properties (unauthenticated): `/properties/`
+        2. My villas in Damascus (authenticated): `/properties/?mine=true&types=villa&cities=damascus`
+        3. All properties under $300k: `/properties/?max_price=300000`
+        """,
+        manual_parameters=[
+            # --- NEW: Add the 'mine' parameter for Swagger documentation ---
+            openapi.Parameter(
+                'mine', 
+                openapi.IN_QUERY, 
+                description="Set to `true` to filter by properties owned by the authenticated user. Requires a JWT token.", 
+                type=openapi.TYPE_BOOLEAN,
+                required=False,
+                default=False
+            ),
+            # --- END NEW ---
+            openapi.Parameter('types', openapi.IN_QUERY, description="Comma-separated property types (flat,villa,house)", type=openapi.TYPE_STRING, example="villa,house"),
+            openapi.Parameter('cities', openapi.IN_QUERY, description="Comma-separated city names", type=openapi.TYPE_STRING, example="damascus,tartous"),
+            openapi.Parameter('min_price', openapi.IN_QUERY, description="Minimum price in USD", type=openapi.TYPE_NUMBER, example=100000),
+            openapi.Parameter('max_price', openapi.IN_QUERY, description="Maximum price in USD", type=openapi.TYPE_NUMBER, example=500000),
+            openapi.Parameter('min_area', openapi.IN_QUERY, description="Minimum area in square meters", type=openapi.TYPE_NUMBER, example=100),
+            openapi.Parameter('max_area', openapi.IN_QUERY, description="Maximum area in square meters", type=openapi.TYPE_NUMBER, example=200),
+            openapi.Parameter('min_rooms', openapi.IN_QUERY, description="Minimum number of rooms", type=openapi.TYPE_INTEGER, example=2),
+            openapi.Parameter('max_rooms', openapi.IN_QUERY, description="Maximum number of rooms", type=openapi.TYPE_INTEGER, example=4),
+            openapi.Parameter('min_bathrooms', openapi.IN_QUERY, description="Minimum number of bathrooms", type=openapi.TYPE_INTEGER, example=2),
+            openapi.Parameter('max_bathrooms', openapi.IN_QUERY, description="Maximum number of bathrooms", type=openapi.TYPE_INTEGER, example=4),
+            openapi.Parameter('is_for_rent', openapi.IN_QUERY, description="Filter by rental status", type=openapi.TYPE_BOOLEAN, example=False),
+            openapi.Parameter('search', openapi.IN_QUERY, description="Search in city or location text", type=openapi.TYPE_STRING, example="beach view"),
+            openapi.Parameter('ordering', openapi.IN_QUERY, description="Order by fields (comma-separated). Prefix with '-' for descending", type=openapi.TYPE_STRING, example="-price,area"),
+        ],
+        responses={
+            200: openapi.Response(description="List of properties matching criteria", schema=PropertySerializer(many=True)),
+            401: "Unauthorized" # This is needed for the 'mine=true' case
+        },
+        security=[{'Bearer': []}] # The Bearer token is now optional for the general list
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+    
     
 class PropertyDetailView(APIView):
     permission_classes = [AllowAny]
@@ -192,7 +358,7 @@ class PropertyDetailView(APIView):
     )
     def get(self, request, property_id):
         try:
-            property_instance = Property.objects.get(id=property_id)
+            property_instance = Property.objects.select_related('owner').prefetch_related('images', 'facilities').get(id=property_id)
         except Property.DoesNotExist:
             return Response({"detail": "Property not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -756,4 +922,6 @@ class ListFavoritePropertiesView(ListAPIView):
     )
     def get_queryset(self):
         # Retrieve the authenticated user's favorite properties
-        return self.request.user.favorite_properties.all()
+        return self.request.user.favorite_properties.all().prefetch_related('images')
+    
+    

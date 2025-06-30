@@ -40,6 +40,8 @@ class Property(models.Model):
         through='PropertyFacility',
         related_name='properties'
     )
+    active=models.BooleanField(default=True)
+    bathrooms=models.IntegerField(default=2)
     class Meta:
         constraints = [
             models.UniqueConstraint(

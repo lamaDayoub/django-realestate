@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import PropertyListView,PropertyDetailView,AddPropertyView,EditPropertyView, EditImageCaptionView,DeleteImageCaptionView
 from .views import AddFacilityView,RemoveFacilityView,AddPropertyImageView,DeletePropertyImageView
-from .views import AddToFavoritesView,RemoveFromFavoritesView,ListFavoritePropertiesView
+from .views import  AddToFavoritesView,RemoveFromFavoritesView,ListFavoritePropertiesView
 urlpatterns = [
     path('', PropertyListView.as_view(), name='property-list'),
     path('<int:property_id>/',PropertyDetailView.as_view(),name='property-detail'),
@@ -24,6 +24,7 @@ urlpatterns = [
     path('<int:property_id>/favorite/', AddToFavoritesView.as_view(), name='add-to-favorites'),
     path('<int:property_id>/unfavorite/', RemoveFromFavoritesView.as_view(), name='remove-from-favorites'),
     path('favorites/', ListFavoritePropertiesView.as_view(), name='list-favorites'),
+    
     
     
     

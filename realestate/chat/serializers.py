@@ -112,7 +112,7 @@ class ConversationListSerializer(serializers.ModelSerializer):
     other_user_is_online = serializers.SerializerMethodField()
     other_user_last_seen = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
-    unread_count = serializers.SerializerMethodField()
+    unread_count = serializers.IntegerField(read_only=True)
     created_at = DamascusDateTimeField(read_only=True)
     updated_at = DamascusDateTimeField(read_only=True)
 
@@ -156,15 +156,16 @@ class ConversationListSerializer(serializers.ModelSerializer):
         return None
 
     def get_last_message(self, obj):
-        last_msg = obj.messages.order_by('-created_at').first()
-        if last_msg:
-            return MessageSerializer(last_msg, context=self.context).data
+        # Check if the annotated field is present on the object
+        if hasattr(obj, 'last_message_id') and obj.last_message_id is not None:
+            return {
+                'content': obj.last_message_content,
+                'created_at': DamascusDateTimeField().to_representation(obj.last_message_created_at),
+                'is_read': obj.last_message_is_read
+            }
         return None
 
-    def get_unread_count(self, obj):
-        user = self.context['request'].user
-        other_user = self.get_other_user(obj)
-        return obj.messages.filter(sender=other_user, is_read=False).count()
+    
 
 # --- Serializer for Creating Conversations ---
 class ConversationCreateSerializer(serializers.ModelSerializer):
