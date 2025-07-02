@@ -31,6 +31,7 @@ class PropertySerializer(CoordinateValidationMixin,serializers.ModelSerializer):
             'is_for_rent',
             'latitude',
             'longitude',
+            'rating',
             'main_photo',  # Include the main photo URL
         ]
         extra_kwargs = {
@@ -130,6 +131,7 @@ class PropertyDetailSerializer(CoordinateValidationMixin,serializers.ModelSerial
             'area',
             'location_text',
             'price',
+            'rating',
             'is_for_rent',
             'details',
             'latitude',

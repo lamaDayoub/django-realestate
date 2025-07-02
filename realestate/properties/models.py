@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.auth import get_user_model
-
+from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.validators import MinValueValidator
 
 User = get_user_model()
@@ -42,6 +42,13 @@ class Property(models.Model):
     )
     active=models.BooleanField(default=True)
     bathrooms=models.IntegerField(default=2)
+    rating = models.DecimalField(
+        max_digits=3, # e.g., 3.50, 4.75
+        decimal_places=2,
+        default=0.00,
+        validators=[MinValueValidator(0.00), MaxValueValidator(5.00)], # Assuming 0-5 star rating
+        help_text="Average rating of the property (0.00 to 5.00)"
+    )
     class Meta:
         constraints = [
             models.UniqueConstraint(

@@ -46,7 +46,8 @@ urlpatterns = [
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     path('users/',include('users.urls')),
     path('properties/',include('properties.urls')),
-     path('chats/',include('chat.urls')),
+    path('chats/',include('chat.urls')),
+    path('notifications/', include('notifications.urls')),
 ]
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
