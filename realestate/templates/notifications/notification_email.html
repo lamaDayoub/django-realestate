@@ -1,0 +1,22 @@
+<!-- templates/notifications/notification_email.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>New Notification from Aqari App</title>
+</head>
+<body>
+    <p>Hello {{ recipient_name }},</p>
+    <p>You have a new notification in Aqari App:</p>
+    <p><strong>Type:</strong> {{ notification_type }}</p>
+    <p><strong>Message:</strong> {{ notification_message }}</p>
+    {% if property_name %}
+        <p><strong>Related Property:</strong> {{ property_name }}</p>
+    {% endif %}
+    {% if sender_name %}
+        <p><strong>From:</strong> {{ sender_name }}</p>
+    {% endif %}
+    <p>Please log in to the app to view details.</p>
+    <p>Thank you,</p>
+    <p>Your Aqari App Team</p>
+</body>
+</html>

@@ -11,7 +11,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
-from notifications.tasks import send_new_message_email 
+from .tasks import send_new_message_email 
 User = get_user_model()
 
 class ChatConsumer(AsyncWebsocketConsumer):

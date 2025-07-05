@@ -49,10 +49,11 @@ class Property(models.Model):
         validators=[MinValueValidator(0.00), MaxValueValidator(5.00)], # Assuming 0-5 star rating
         help_text="Average rating of the property (0.00 to 5.00)"
     )
+    
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=['owner', 'ptype', 'city', 'area', 'price'],
+                fields=['owner', 'ptype', 'city', 'area', 'price','number_of_rooms', 'bathrooms', 'active', 'is_for_rent', 'longitude', 'latitude'],
                 name='unique_property'
             )
         ]
@@ -88,3 +89,37 @@ class FavoriteProperty(models.Model):
 
     def __str__(self):
         return f"{self.user}'s favorite: {self.property}"
+    
+    
+class Rating(models.Model):
+    """
+    Model to store individual user ratings for properties.
+    """
+    user = models.ForeignKey(
+        User, # The User who submitted this rating
+        on_delete=models.CASCADE,
+        related_name='given_ratings', # User's perspective: ratings they have given
+        help_text="The user who provided this rating."
+    )
+    property = models.ForeignKey(
+        Property, # The Property being rated
+        on_delete=models.CASCADE,
+        related_name='individual_ratings', # Property's perspective: individual ratings it has received
+        help_text="The property being rated."
+    )
+    value = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)], # 1 to 5 stars
+        help_text="The rating value (1-5 stars)."
+    )
+    # No comment, created_at, updated_at on this simplified model, as per agreement.
+
+    class Meta:
+        # A user can rate a specific property only once
+        unique_together = [['user', 'property']]
+        
+        verbose_name = "Property Rating"
+        verbose_name_plural = "Property Ratings"
+
+    def __str__(self):
+        return f"Rating {self.value} for {self.property.ptype} by {self.user.email}"
+# --- END NEW Rating Model ---

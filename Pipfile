@@ -19,6 +19,7 @@ celery = "*"
 redis = "*"
 django-celery-results = "*"
 django-celery-beat = "*"
+channels_redis = "*"
 
 [dev-packages]
 

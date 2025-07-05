@@ -40,11 +40,12 @@ COPY ./realestate /app/realestate
 WORKDIR /app/realestate
 
 # Expose ports for both runserver and daphne
-EXPOSE 8000
-EXPOSE 8001
+EXPOSE 8888
+EXPOSE 8889 
+
 
 # Define environment variable for Django settings module
 ENV DJANGO_SETTINGS_MODULE=realestate.settings
 
 # Default command (overridden by docker-compose for specific services)
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8888"]

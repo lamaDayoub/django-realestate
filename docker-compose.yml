@@ -13,12 +13,12 @@ services:
   # Service for HTTP API and Static Files (Django's runserver)
   django_http:
     build: . # Build from the Dockerfile in the current directory
-    command: python manage.py runserver 0.0.0.0:8000 # Command to run HTTP server
+    command: python manage.py runserver 0.0.0.0:8888 # Command to run HTTP server
     volumes:
       - ./realestate:/app/realestate # Mount the host's 'realestate' subdirectory into the container
       - media_data:/app/realestate/media # Persist media files (user uploads)
     ports:
-      - "8000:8000" # Map host port 8000 to container port 8000
+      - "127.0.0.1:9999:8888" # Map host port 8000 to container port 8000
     env_file:
       - ./realestate/.env # Load environment variables from .env file
     depends_on:
@@ -27,12 +27,12 @@ services:
   # Service for WebSocket connections (Daphne)
   django_websocket:
     build: . # Build from the Dockerfile in the current directory
-    command: daphne -b 0.0.0.0 -p 8001 realestate.asgi:application # Command to run Daphne
+    command: daphne -b 0.0.0.0 -p 8889 realestate.asgi:application  # Command to run Daphne
     volumes:
       - ./realestate:/app/realestate # Mount the host's 'realestate' subdirectory into the container
       - media_data:/app/realestate/media # Share media files volume with http service
     ports:
-      - "8001:8001" # Map host port 8001 to container port 8001
+      - "127.0.0.1:9998:8889" # Map host port 8001 to container port 8001
     env_file:
       - ./realestate/.env # Load environment variables from .env file
     depends_on:

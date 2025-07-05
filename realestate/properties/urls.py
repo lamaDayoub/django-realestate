@@ -1,10 +1,11 @@
 from django.urls import path
 from .views import PropertyListView,PropertyDetailView,AddPropertyView,EditPropertyView, EditImageCaptionView,DeleteImageCaptionView
 from .views import AddFacilityView,RemoveFacilityView,AddPropertyImageView,DeletePropertyImageView
-from .views import  AddToFavoritesView,RemoveFromFavoritesView,ListFavoritePropertiesView
+from .views import  RatePropertyView, AddToFavoritesView,RemoveFromFavoritesView,ListFavoritePropertiesView
 urlpatterns = [
     path('', PropertyListView.as_view(), name='property-list'),
     path('<int:property_id>/',PropertyDetailView.as_view(),name='property-detail'),
+    path('<int:property_id>/rate/', RatePropertyView.as_view(), name='property-rate'),  
     path('add/', AddPropertyView.as_view(), name='add-property'),
     path('<int:property_id>/edit/', EditPropertyView.as_view(), name='edit-property'),
     path('<int:property_id>/facilities/add/', AddFacilityView.as_view(), name='add-facility'),

@@ -53,7 +53,7 @@ INSTALLED_APPS = [
     'chat',
     'django_celery_results',
     'django_celery_beat',
-    'notifications',
+    'notifications.apps.NotificationsConfig',
 ]
 
 MIDDLEWARE = [
@@ -165,7 +165,7 @@ SWAGGER_SETTINGS = {
     'REFETCH_SCHEMA_WITH_AUTH': True,
     'DEEP_LINKING': True,
     'OPERATIONS_SORTER': 'method',
-    'DEFAULT_API_URL': 'http://localhost:8000/',
+    'DEFAULT_API_URL': 'http://localhost:9999/',
 }
 # Email configuration
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -220,10 +220,19 @@ SIMPLE_JWT = {
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
 }
+# CHANNEL_LAYERS = {
+#     'default': {
+#         "BACKEND" :"channels.layers.InMemoryChannelLayer", 
+#     }
+# }
 CHANNEL_LAYERS = {
     'default': {
-        "BACKEND" :"channels.layers.InMemoryChannelLayer", 
-    }
+        'BACKEND': 'channels_redis.pubsub.RedisPubSubChannelLayer', # Use RedisPubSubChannelLayer for real-time pub/sub
+        'CONFIG': {
+            "hosts": [('redis', 6379)], # 'redis' is the service name in your docker-compose.yml
+                                        # 6379 is the default Redis port
+        },
+    },
 }
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/

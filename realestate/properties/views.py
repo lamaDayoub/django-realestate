@@ -4,7 +4,7 @@ from rest_framework.permissions import AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from .models import Property,PropertyImage,Facility,PropertyFacility, FavoriteProperty
-from .serializers import PropertySerializer,PropertyDetailSerializer,PropertyImageSerializer,FacilitySerializer,AddFacilitySerializer
+from .serializers import RatingSerializer , PropertySerializer,PropertyDetailSerializer,PropertyImageSerializer,FacilitySerializer,AddFacilitySerializer
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework.pagination import PageNumberPagination
@@ -15,188 +15,13 @@ from .permissions import IsSeller
 from rest_framework.parsers import MultiPartParser
 from .filters import CaseInsensitiveSearchFilter
 import os
-from django.db.models import Q
+from django.db.models import Q ,Avg, F
 from django.conf import settings
 from rest_framework import generics
-
-
-# class PropertyListView(ListAPIView):
-#     """
-#     Advanced property search endpoint with flexible filtering options.
-#     Supports case-insensitive search for cities and property types.
-#     """
-#     queryset = Property.objects.all()
-#     serializer_class = PropertySerializer
-#     permission_classes = [AllowAny]
-#     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    
-#     filterset_fields = {
-#         'is_for_rent': ['exact'],
-#     }
-    
-#     search_fields = ['city', 'location_text']
-#     ordering_fields = ['price', 'area', 'number_of_rooms', 'bathrooms']
-#     ordering = ['-id']
-
-#     @swagger_auto_schema(
-#         operation_id="property_search",
-#         operation_description="""
-#         ## Advanced Property Search
-        
-#         Search properties with powerful filtering capabilities.
-#         All parameters are optional - combine them as needed.
-        
-#         ### Examples:
-#         1. All properties: `/properties/`
-#         2. Villas in Damascus: `/properties/?types=villa&cities=damascus`
-#         3. 2-3 bedroom flats: `/properties/?types=flat&min_rooms=2&max_rooms=3`
-#         4. Properties under $300k: `/properties/?max_price=300000`
-#         """,
-#         manual_parameters=[
-#             openapi.Parameter(
-#                 'types', 
-#                 openapi.IN_QUERY, 
-#                 description="Comma-separated property types (flat,villa,house)", 
-#                 type=openapi.TYPE_STRING,
-#                 example="villa,house"
-#             ),
-#             openapi.Parameter(
-#                 'cities', 
-#                 openapi.IN_QUERY, 
-#                 description="Comma-separated city names", 
-#                 type=openapi.TYPE_STRING,
-#                 example="damascus,tartous"
-#             ),
-#             openapi.Parameter(
-#                 'min_price', 
-#                 openapi.IN_QUERY, 
-#                 description="Minimum price in USD", 
-#                 type=openapi.TYPE_NUMBER,
-#                 example=100000
-#             ),
-#             openapi.Parameter(
-#                 'max_price', 
-#                 openapi.IN_QUERY, 
-#                 description="Maximum price in USD", 
-#                 type=openapi.TYPE_NUMBER,
-#                 example=500000
-#             ),
-#             openapi.Parameter(
-#                 'min_area', 
-#                 openapi.IN_QUERY, 
-#                 description="Minimum area in square meters", 
-#                 type=openapi.TYPE_NUMBER,
-#                 example=100
-#             ),
-#             openapi.Parameter(
-#                 'max_area', 
-#                 openapi.IN_QUERY, 
-#                 description="Maximum area in square meters", 
-#                 type=openapi.TYPE_NUMBER,
-#                 example=200
-#             ),
-#             openapi.Parameter(
-#                 'min_rooms', 
-#                 openapi.IN_QUERY, 
-#                 description="Minimum number of rooms", 
-#                 type=openapi.TYPE_INTEGER,
-#                 example=2
-#             ),
-#             openapi.Parameter(
-#                 'max_rooms', 
-#                 openapi.IN_QUERY, 
-#                 description="Maximum number of rooms", 
-#                 type=openapi.TYPE_INTEGER,
-#                 example=4
-#             ),
-#             openapi.Parameter(
-#                 'min_bathrooms', 
-#                 openapi.IN_QUERY, 
-#                 description="Minimum number of bathrooms", 
-#                 type=openapi.TYPE_INTEGER,
-#                 example=2
-#             ),
-#             openapi.Parameter(
-#                 'max_bathrooms', 
-#                 openapi.IN_QUERY, 
-#                 description="Maximum number of bathrooms", 
-#                 type=openapi.TYPE_INTEGER,
-#                 example=4
-#             ),
-#             openapi.Parameter(
-#                 'is_for_rent', 
-#                 openapi.IN_QUERY, 
-#                 description="Filter by rental status", 
-#                 type=openapi.TYPE_BOOLEAN,
-#                 example=False
-#             ),
-#             openapi.Parameter(
-#                 'search', 
-#                 openapi.IN_QUERY, 
-#                 description="Search in city or location text", 
-#                 type=openapi.TYPE_STRING,
-#                 example="beach view"
-#             ),
-#             openapi.Parameter(
-#                 'ordering', 
-#                 openapi.IN_QUERY, 
-#                 description="Order by fields (comma-separated). Prefix with '-' for descending", 
-#                 type=openapi.TYPE_STRING,
-#                 example="-price,area"
-#             ),
-#         ],
-#         responses={
-#             200: openapi.Response(
-#                 description="List of properties matching criteria",
-#                 schema=PropertySerializer(many=True)
-#             )
-#         }
-#     )
-#     def get(self, request, *args, **kwargs):
-#         return super().get(request, *args, **kwargs)
-
-#     def filter_queryset(self, queryset):
-#         queryset = super().filter_queryset(queryset)
-#         params = self.request.query_params
-        
-#         # Case-insensitive property types filter
-#         if 'types' in params:
-#             types = [t.strip().lower() for t in params['types'].split(',') if t.strip()]
-#             if types:
-#                 queryset = queryset.filter(
-#                     Q(*[Q(ptype__iexact=type_name) for type_name in types], _connector=Q.OR)
-#                 )
-        
-#         # Case-insensitive cities filter
-#         if 'cities' in params:
-#             cities = [c.strip() for c in params['cities'].split(',') if c.strip()]
-#             if cities:
-#                 queryset = queryset.filter(
-#                     Q(*[Q(city__iexact=city_name) for city_name in cities], _connector=Q.OR)
-#                 )
-        
-#         # Numeric range filters
-#         try:
-#             if 'min_price' in params:
-#                 queryset = queryset.filter(price__gte=float(params['min_price']))
-#             if 'max_price' in params:
-#                 queryset = queryset.filter(price__lte=float(params['max_price']))
-#             if 'min_area' in params:
-#                 queryset = queryset.filter(area__gte=float(params['min_area']))
-#             if 'max_area' in params:
-#                 queryset = queryset.filter(area__lte=float(params['max_area']))
-#             if 'min_rooms' in params:
-#                 queryset = queryset.filter(number_of_rooms__gte=int(params['min_rooms']))
-#             if 'max_rooms' in params:
-#                 queryset = queryset.filter(number_of_rooms__lte=int(params['max_rooms']))
-#             if 'min_bathrooms' in params:
-#                 queryset = queryset.filter(bathrooms__gte=int(params['min_bathrooms']))
-#             if 'max_bathrooms' in params:
-#                 queryset = queryset.filter(bathrooms__lte=int(params['max_bathrooms']))
-#         except (ValueError, TypeError):
-#             pass
-        
-#         return queryset
+from django.contrib.contenttypes.models import ContentType 
+from notifications.models import Notification
+from notifications.tasks import dispatch_notification_task
+from django.db.models.signals import post_save
     
 class PropertyListView(ListAPIView):
     """
@@ -418,7 +243,7 @@ class EditPropertyView(APIView):
         except Property.DoesNotExist:
             return Response({"detail": "Property not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = PropertySerializer(property_instance, data=request.data, partial=True)
+        serializer = PropertySerializer(property_instance, data=request.data, partial=True, context={'request': request})
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -820,7 +645,8 @@ class AddToFavoritesView(APIView):
             return Response({"detail": "Property is already in favorites."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Add the property to the user's favorites
-        user.favorite_properties.add(property)
+        #user.favorite_properties.add(property)
+        FavoriteProperty.objects.create(user=user, property=property)
         return Response({"detail": "Property added to favorites."}, status=status.HTTP_200_OK)
     
 class RemoveFromFavoritesView(APIView):
@@ -924,4 +750,63 @@ class ListFavoritePropertiesView(ListAPIView):
         # Retrieve the authenticated user's favorite properties
         return self.request.user.favorite_properties.all().prefetch_related('images')
     
-    
+#######RATING###########
+class RatePropertyView(APIView): # <--- NEW CLASS
+    """
+    API endpoint to allow authenticated users to rate a property.
+    A user cannot rate their own property or rate the same property multiple times.
+    Updates the property's average rating and notifies the owner.
+    """
+    permission_classes = [IsAuthenticated] # Only authenticated users can rate
+
+    @swagger_auto_schema(
+        operation_id="rate_property",
+        operation_description="Submit a rating for a specific property. Users cannot rate their own properties or rate the same property multiple times. This updates the property's average rating and notifies the owner.",
+        manual_parameters=[
+            openapi.Parameter(
+                'property_id',
+                openapi.IN_PATH,
+                description="The ID of the property to rate.",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            ),
+        ],
+        request_body=RatingSerializer, # <--- Use the RatingSerializer for input (it has value and comment)
+        responses={
+            201: openapi.Response(description="Rating submitted successfully.", schema=RatingSerializer), # Returns the created Rating object
+            400: "Bad request (e.g., invalid value).",
+            403: "Forbidden (e.g., rating own property, already rated).", # Updated error message
+            404: "Property not found."
+        },
+        security=[{'Bearer': []}]
+    )
+    def post(self, request, property_id):
+        try:
+            property_instance = Property.objects.get(id=property_id)
+        except Property.DoesNotExist:
+            return Response({"detail": "Property not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        user = request.user
+
+        # --- Validation: User cannot rate their own property ---
+        if property_instance.owner == user:
+            return Response({"detail": "You cannot rate your own property."}, status=status.HTTP_403_FORBIDDEN)
+
+        # --- Use RatingSerializer for input and validation ---
+        # Pass user and property_instance to serializer context for validation
+        serializer = RatingSerializer(data=request.data, context={'request': request, 'property_instance': property_instance, 'user': user})
+        serializer.is_valid(raise_exception=True)
+
+        # Create the new Rating object
+        # The serializer's validate method already checked 'rate once' and 'not owner'
+        rating_instance = serializer.save(user=user, property=property_instance) # Save the new Rating object
+
+        # --- Trigger Signal for Property.rating update and Notification ---
+        # The post_save signal on the Rating model will handle:
+        # 1. Recalculating Property.rating (average)
+        # 2. Creating the Notification
+        # 3. Dispatching the Celery task
+        print(f"DEBUG: Rating {rating_instance.pk} created for Property {property_instance.pk} by User {user.id}. Signal will handle updates and notification.")
+
+        # Return the newly created Rating object
+        return Response(RatingSerializer(rating_instance).data, status=status.HTTP_201_CREATED)

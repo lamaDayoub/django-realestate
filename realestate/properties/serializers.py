@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Property, PropertyImage,Facility
+from .models import Property, PropertyImage,Facility, Rating
 
 class CoordinateValidationMixin:
     def validate_latitude(self, value):
@@ -35,7 +35,8 @@ class PropertySerializer(CoordinateValidationMixin,serializers.ModelSerializer):
             'main_photo',  # Include the main photo URL
         ]
         extra_kwargs = {
-            'owner': {'read_only': True}
+            'owner': {'read_only': True},
+            'rating':{'read_only': True},
         }
     def validate(self, data):
         # Check for existing similar properties
@@ -44,7 +45,14 @@ class PropertySerializer(CoordinateValidationMixin,serializers.ModelSerializer):
             ptype=data.get('ptype'),
             city=data.get('city'),
             area=data.get('area'),
-            price=data.get('price')
+            price=data.get('price'),
+            active=data.get('active'),
+            number_of_rooms=data.get('number_of_rooms'),
+            bathrooms=data.get('bathrooms'),
+            is_for_rent=data.get('is_for_rent'),
+            latitude=data.get('latitude'),
+            longitude=data.get('longitude'),
+            
         ).exists()
         
         if existing:
@@ -140,3 +148,64 @@ class PropertyDetailSerializer(CoordinateValidationMixin,serializers.ModelSerial
             'images',
             
         ]
+        
+class PropertyRatingInputSerializer(serializers.Serializer):
+    """
+    Serializer for accepting rating input (value and optional comment).
+    """
+    value = serializers.IntegerField(
+        min_value=1,
+        max_value=5,
+        required=True,
+        help_text="The rating value (1-5 stars)."
+    )
+    
+
+    def validate(self, data):
+        # Context will contain 'request' and 'property' instance from the view
+        request_user = self.context['request'].user
+        property_instance = self.context['property']
+
+        # Ensure user is not the owner of the property
+        if property_instance.owner == request_user:
+            raise serializers.ValidationError("You cannot rate your own property.")
+
+
+        return data
+    
+class RatingSerializer(serializers.ModelSerializer): # <--- NEW CLASS
+    """
+    Serializer for creating and listing individual property ratings.
+    """
+    user_id = serializers.ReadOnlyField(source='user.id') # Read-only ID of the user who rated
+    user_email = serializers.ReadOnlyField(source='user.email') # Read-only email of the user who rated
+    # No comment, created_at, updated_at fields here as per simplified Rating model
+
+    class Meta:
+        model = Rating
+        fields = ['id', 'user_id', 'user_email', 'property', 'value'] # No comment field
+        read_only_fields = ['id', 'user_id', 'user_email'] # property is write_only in views context
+        extra_kwargs = {
+            'property': {'write_only': True} # Property ID is sent in the URL, not body
+        }
+
+    def create(self, validated_data):
+        # The 'user' and 'property' instances will be provided by the view
+        return Rating.objects.create(**validated_data)
+
+    def validate(self, data):
+        # Context will contain 'request' and 'property_instance' from the view
+        request_user = self.context['request'].user
+        property_instance = self.context['property_instance'] # Renamed context key for clarity
+
+        # Enforce "user cannot rate their own property"
+        if property_instance.owner == request_user:
+            raise serializers.ValidationError("You cannot rate your own property.")
+
+        # Enforce "rate once" using unique_together constraint on Rating model
+        # This check is technically redundant as the DB will enforce unique_together,
+        # but it provides a cleaner error message to the user.
+        if Rating.objects.filter(user=request_user, property=property_instance).exists():
+            raise serializers.ValidationError("You have already rated this property.")
+
+        return data

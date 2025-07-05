@@ -13,6 +13,8 @@ from properties.models import Property
 from django.contrib.contenttypes.models import ContentType # For GenericForeignKey lookups
 from rest_framework.views import APIView 
 from rest_framework.serializers import Serializer as DRFSerializer
+from asgiref.sync import async_to_sync 
+from channels.layers import get_channel_layer
 class NotificationListView(generics.ListAPIView):
     """
     API endpoint to list all notifications for the authenticated user.
@@ -81,15 +83,25 @@ class NotificationMarkAllReadView(APIView):
     )
     def post(self, request, *args, **kwargs):
         user = request.user
-        # Get all unread notifications for the user
         unread_notifications = Notification.objects.filter(recipient=user, is_read=False)
-        # Mark them as read in a single database query
         updated_count = unread_notifications.update(is_read=True)
 
-        # --- Real-time Update (Future Step) ---
-        # Here, we would dispatch a real-time message to the user's notification WebSocket
-        # to update their unread count badge. We'll add this in a later step.
-        # --- END Real-time Update ---
+        # --- NEW: Real-time Update for Unread Count ---
+        # Calculate new unread count (will be 0 after marking all read)
+        new_unread_count = Notification.objects.filter(recipient=user, is_read=False).count() # Should be 0
+
+        # Dispatch real-time update to user's notification WebSocket
+        channel_layer = get_channel_layer()
+        if channel_layer:
+            async_to_sync(channel_layer.group_send)(
+                f'user_{user.id}_notifications', # User's personal notification group
+                {
+                    'type': 'notification.unread_count_update', # Calls notification_unread_count_update handler
+                    'count': new_unread_count # Send the updated count (0)
+                }
+            )
+            print(f"DEBUG: Dispatched real-time unread count update ({new_unread_count}) after mark-all-read for {user.email}.")
+        # --- END NEW ---
 
         return Response(
             {'detail': f"Successfully marked {updated_count} notifications as read."},
