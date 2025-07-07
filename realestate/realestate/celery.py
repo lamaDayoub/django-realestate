@@ -14,7 +14,8 @@ app = Celery('realestate') # 'realestate' should be your Django project name
 app.config_from_object('django.conf:settings', namespace='CELERY')
 
 # Auto-discover tasks in all installed apps (e.g., 'notifications/tasks.py')
-app.autodiscover_tasks()
+
+app.autodiscover_tasks(['users', 'notifications','chat'])
 
 @app.task(bind=True, ignore_result=True)
 def debug_task(self):

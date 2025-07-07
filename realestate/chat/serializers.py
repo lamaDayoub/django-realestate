@@ -7,11 +7,11 @@ from django.conf import settings
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
+from django.db.models import Q 
 
-# Assuming these imports are correct for your project structure
 from users.models import Profile 
 from core.serializers.fields import DamascusDateTimeField 
-from chat.models import Message, Conversation # Explicitly import models needed here
+from chat.models import Message, Conversation 
 
 # Get the User model
 User = get_user_model()
@@ -101,6 +101,28 @@ class MessageSerializer(serializers.ModelSerializer):
             return request.build_absolute_uri(obj.file.url)
         elif obj.message_type != Message.MessageType.TEXT and obj.content and (obj.content.startswith('http://') or obj.content.startswith('https://')):
             return obj.content
+        return None
+
+class ChatParticipantSerializer(serializers.ModelSerializer):
+    """
+    Lightweight serializer for chat participants (used in real-time updates).
+    Includes basic user and profile info.
+    """
+    first_name = serializers.CharField(source='profile.first_name', read_only=True)
+    last_name = serializers.CharField(source='profile.last_name', read_only=True)
+    photo_url = serializers.SerializerMethodField() # To get absolute URL of profile photo
+    is_online = serializers.BooleanField(read_only=True)
+    last_seen = DamascusDateTimeField(read_only=True)
+
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'first_name', 'last_name', 'photo_url', 'is_online', 'last_seen']
+        read_only_fields = fields
+
+    def get_photo_url(self, obj):
+        request = self.context.get('request')
+        if hasattr(obj, 'profile') and obj.profile and obj.profile.photo and request:
+            return request.build_absolute_uri(obj.profile.photo.url)
         return None
 
 # --- Serializer for Conversation List View ---

@@ -10,6 +10,7 @@ from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from random import randint
 from django.contrib.auth import get_user_model
+from users.tasks import send_verification_email_task, send_password_change_notification_task
 User = get_user_model()
 def validate_user_email(email):
     try:
@@ -66,47 +67,15 @@ def send_verification_email(user, purpose):
         max_attempts=MAX_ATTEMPTS
     )
 
-    # Prepare email content
-    subject = 'Verification Code'
-    if purpose == 'activation':
-        subject = 'Activate Your Account'
-    elif purpose == 'password_reset':
-        subject = 'Reset Your Password'
-
-    message = f'Your verification code is {code}. It will expire in {CODE_EXPIRY_MINUTES} minutes.'
-
-    # Send the email
-    send_mail(
-        subject,
-        message,
-        settings.DEFAULT_FROM_EMAIL,
-        [user.email],
-        fail_silently=False,
-    )
-
+    send_verification_email_task.delay(user.id, purpose, code, CODE_EXPIRY_MINUTES)
+    
 
 
 def send_password_change_notification(user):
     """
     Sends a plain text email notification to the user when their password is changed.
     """
-    subject = "Your Password Has Been Changed"
-    message = (
-        f"Hello from RealEstate,\n\n"
-        f"We noticed that your password has been changed. "
-        f"If it wasn't you, please let us know and contact us.\n\n"
-        f"Thank you,\n"
-        f"RealEstate Team"
-    )
-    
-    send_mail(
-        subject,
-        message,
-        settings.DEFAULT_FROM_EMAIL,
-        [user.email],
-        fail_silently=False,
-    )
-    
+    send_password_change_notification_task.delay(user.id)
     
 def verify_code(email, code, purpose):
     """
