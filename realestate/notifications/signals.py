@@ -63,6 +63,26 @@ def post_save_property_handler(sender, instance, created, **kwargs):
                 )
                 dispatch_notification_task.delay(notification.pk)
                 print(f"DEBUG: Dispatched notification for property status change: {notification_message}")
+                favorited_users_for_status_change = instance.favorited_by.all()
+                favorited_users_for_status_change = favorited_users_for_status_change.exclude(pk=owner.pk) # Exclude owner
+
+                if favorited_users_for_status_change.exists():
+                    notification_message_favoriter_status = (
+                        f"A property you favorited: '{instance.ptype} in {instance.city}' "
+                        f"has been {status_text}."
+                    )
+                    for favored_user in favorited_users_for_status_change:
+                        notification = Notification.objects.create(
+                            recipient=favored_user,
+                            notification_type=notification_type, # Reuse PROPERTY_STATUS type
+                            message=notification_message_favoriter_status,
+                            content_type=ContentType.objects.get_for_model(instance),
+                            object_id=instance.pk
+                        )
+                        dispatch_notification_task.delay(notification.pk)
+                        print(f"DEBUG: Dispatched notification for property status change (to favoriter {favored_user.email}): {notification_message_favoriter_status}")
+                else:
+                    print(f"DEBUG: Property {instance.pk} status changed, but no non-owner favoriters to notify.")
 
             if old_values['price'] != instance.price:
                 favorited_users = instance.favorited_by.all() # Accesses related_name='favorited_by' from Property
