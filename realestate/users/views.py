@@ -827,46 +827,7 @@ class ResetPasswordView(APIView):
         except Exception:
             return Response({"detail": "An error occurred during password reset. Please try again."},
                       status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    # def post(self, request):
-    #     email = request.data.get('email')
-    #     code = request.data.get('code')
-    #     new_password = request.data.get('new_password')
-
-    #     # Check if required fields are provided
-    #     if not email or not code or not new_password:
-    #         return Response({"detail": "Email, code, and new password are required."}, status=status.HTTP_400_BAD_REQUEST)
-
-    #     result = verify_code(email, code, 'password_reset')
-    #     if isinstance(result, Response):
-    #         return result  # Return error if any
-        
-    #     user, verification = result
-    #     # Ensure the new password is not the same as the current password
-    #     if check_password(new_password, user.password):
-    #         return Response({"detail": "New password cannot be the same as the current password."}, status=status.HTTP_400_BAD_REQUEST)
-
-    #     # Before updating the password, save the current hashed password to the password history
-    #     if user.password:
-    #         PasswordHistory.objects.create(user=user, hashed_password=user.password)
-
-    #     # Update the user's password and save it
-    #     user.set_password(new_password)
-    #     user.save()
-
-    #     # Delete the used verification code after successful password reset
-    #     verification.delete()
-
-    #     # Check if the password history exceeds 6 records, delete the oldest
-    #     if user.password_histories.count() > 6:
-    #         user.password_histories.order_by('created_at').last().delete()
-    #     tokens = OutstandingToken.objects.filter(user=user)
-    #     for token in tokens:
-    #         BlacklistedToken.objects.get_or_create(token=token)
-    #     send_password_change_notification(user)
-
-    #     return Response({"detail": "Password reset successful. You have been logged out of all devices."}, status=status.HTTP_200_OK)
-
-
+    
     
 ##############photot +isseller mode#####
 

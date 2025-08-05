@@ -1,5 +1,8 @@
+
+
 # chat/serializers.py
-import os 
+
+import os
 import uuid
 
 from rest_framework import serializers
@@ -7,11 +10,11 @@ from django.conf import settings
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.core.files.storage import default_storage
-from django.db.models import Q 
+from django.db.models import Q
 
-from users.models import Profile 
-from core.serializers.fields import DamascusDateTimeField 
-from chat.models import Message, Conversation 
+from users.models import Profile
+from core.serializers.fields import DamascusDateTimeField
+from chat.models import Message, Conversation
 
 # Get the User model
 User = get_user_model()
@@ -36,9 +39,17 @@ class FileUploadSerializer(serializers.Serializer):
 
     def validate_file(self, value):
         """Validates the uploaded file's type and size."""
-        allowed_types = ['image/jpeg', 'image/png', 'application/pdf']
+        allowed_types = [
+            'image/jpeg',
+            'image/png',
+            'image/gif',    # Added GIF
+            'image/bmp',    # Added BMP
+            'image/webp',   # Added WebP
+            'image/tiff',   # Added TIFF
+            'application/pdf'
+        ]
         if value.content_type not in allowed_types:
-            raise serializers.ValidationError("Only JPEG, PNG images, and PDF files are allowed.")
+            raise serializers.ValidationError("Only JPEG, PNG, GIF, BMP, WebP, TIFF images, and PDF files are allowed.")
 
         max_size = 5 * 1024 * 1024 # 5MB limit
         if value.size > max_size:
@@ -61,11 +72,8 @@ class FileUploadSerializer(serializers.Serializer):
 
         return UploadedFileRepresentation(file_path)
 
-    # This method is crucial. It defines how the *output* of the serializer looks.
-    # DRF expects `to_representation` to return a dictionary of primitive data.
     def to_representation(self, instance):
         """Custom representation for the uploaded file response."""
-        # `instance` here is the UploadedFileRepresentation object returned by `create`.
         request = self.context.get('request')
         if request and hasattr(instance, 'url'):
             file_url = request.build_absolute_uri(instance.url)
@@ -77,8 +85,11 @@ class MessageSerializer(serializers.ModelSerializer):
     sender_id = serializers.IntegerField(source='sender.id', read_only=True)
     sender_first_name = serializers.CharField(source='sender.profile.first_name', read_only=True)
     sender_last_name = serializers.CharField(source='sender.profile.last_name', read_only=True)
+    
+    # RE-INTRODUCED: SerializerMethodField for sender_photo and file_url for HTTP views
     sender_photo = serializers.SerializerMethodField()
-    file_url = serializers.SerializerMethodField() 
+    file_url = serializers.SerializerMethodField()
+    
     created_at = DamascusDateTimeField(read_only=True)
 
     class Meta:
@@ -87,21 +98,25 @@ class MessageSerializer(serializers.ModelSerializer):
             'id', 'sender_id', 'sender_first_name', 'sender_last_name', 'sender_photo',
             'content', 'file_url', 'message_type', 'created_at', 'is_read',
         ]
-        read_only_fields = fields 
+        read_only_fields = fields # All fields are read-only for output
 
+    # RE-INTRODUCED METHOD: For HTTP API to get sender photo URL
     def get_sender_photo(self, obj):
         request = self.context.get('request')
         if obj.sender.profile and obj.sender.profile.photo and request:
             return request.build_absolute_uri(obj.sender.profile.photo.url)
-        return None
+        return None # Return None if no photo or request context
 
+    # RE-INTRODUCED METHOD: For HTTP API to get file URL from Message.file
     def get_file_url(self, obj):
         request = self.context.get('request')
         if obj.file and request:
             return request.build_absolute_uri(obj.file.url)
+        # Handle case where content might contain an external URL (e.g., if not stored in FileField)
         elif obj.message_type != Message.MessageType.TEXT and obj.content and (obj.content.startswith('http://') or obj.content.startswith('https://')):
             return obj.content
         return None
+
 
 class ChatParticipantSerializer(serializers.ModelSerializer):
     """
@@ -110,7 +125,10 @@ class ChatParticipantSerializer(serializers.ModelSerializer):
     """
     first_name = serializers.CharField(source='profile.first_name', read_only=True)
     last_name = serializers.CharField(source='profile.last_name', read_only=True)
-    photo_url = serializers.SerializerMethodField() # To get absolute URL of profile photo
+    
+    # RE-INTRODUCED: SerializerMethodField for photo_url for HTTP views
+    photo_url = serializers.SerializerMethodField()
+    
     is_online = serializers.BooleanField(read_only=True)
     last_seen = DamascusDateTimeField(read_only=True)
 
@@ -119,40 +137,49 @@ class ChatParticipantSerializer(serializers.ModelSerializer):
         fields = ['id', 'email', 'first_name', 'last_name', 'photo_url', 'is_online', 'last_seen']
         read_only_fields = fields
 
+    # RE-INTRODUCED METHOD: For HTTP API to get participant photo URL
     def get_photo_url(self, obj):
         request = self.context.get('request')
         if hasattr(obj, 'profile') and obj.profile and obj.profile.photo and request:
             return request.build_absolute_uri(obj.profile.photo.url)
         return None
 
+
 # --- Serializer for Conversation List View ---
 class ConversationListSerializer(serializers.ModelSerializer):
     other_user_id = serializers.SerializerMethodField()
+    # CHANGED: These must be SerializerMethodField as they depend on get_other_user
     other_user_first_name = serializers.SerializerMethodField()
     other_user_last_name = serializers.SerializerMethodField()
     other_user_photo = serializers.SerializerMethodField()
     other_user_is_online = serializers.SerializerMethodField()
     other_user_last_seen = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
-    unread_count = serializers.IntegerField(read_only=True)
+   
+    unread_count = serializers.IntegerField(read_only=True) # This will be fixed by Coalesce
+
     created_at = DamascusDateTimeField(read_only=True)
     updated_at = DamascusDateTimeField(read_only=True)
 
     class Meta:
         model = Conversation
         fields = [
-            'id', 'other_user_id', 'other_user_first_name', 'other_user_last_name', 
+            'id', 'other_user_id', 'other_user_first_name', 'other_user_last_name',
             'other_user_photo', 'other_user_is_online', 'other_user_last_seen',
             'last_message', 'unread_count', 'created_at', 'updated_at',
         ]
 
     def get_other_user(self, obj):
+        # This method is crucial for determining which participant is "other"
         user = self.context['request'].user
+        # The Conversation object in the queryset is already select_related to participant1__profile and participant2__profile
+        # so accessing .profile here should not cause N+1 queries.
         return obj.participant2 if user == obj.participant1 else obj.participant1
 
     def get_other_user_id(self, obj):
         return self.get_other_user(obj).id
 
+    # RE-INTRODUCED/FIXED METHODS for other_user details
     def get_other_user_first_name(self, obj):
         other_user = self.get_other_user(obj)
         return other_user.profile.first_name if hasattr(other_user, 'profile') and other_user.profile else None
@@ -169,25 +196,28 @@ class ConversationListSerializer(serializers.ModelSerializer):
         return None
 
     def get_other_user_is_online(self, obj):
-        return self.get_other_user(obj).is_online
+        other_user = self.get_other_user(obj)
+        return other_user.is_online
 
     def get_other_user_last_seen(self, obj):
-        last_seen = self.get_other_user(obj).last_seen
+        other_user = self.get_other_user(obj)
+        last_seen = other_user.last_seen
         if last_seen:
             return DamascusDateTimeField().to_representation(last_seen)
         return None
 
     def get_last_message(self, obj):
-        # Check if the annotated field is present on the object
         if hasattr(obj, 'last_message_id') and obj.last_message_id is not None:
             return {
+                'id': obj.last_message_id, # ADDED: The ID of the last message
                 'content': obj.last_message_content,
                 'created_at': DamascusDateTimeField().to_representation(obj.last_message_created_at),
                 'is_read': obj.last_message_is_read
             }
         return None
+ 
 
-    
+
 
 # --- Serializer for Creating Conversations ---
 class ConversationCreateSerializer(serializers.ModelSerializer):
@@ -196,7 +226,7 @@ class ConversationCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
         fields = ['id', 'other_user_id']
-        read_only_fields = ['id'] 
+        read_only_fields = ['id']
 
     def validate_other_user_id(self, value):
         request_user = self.context['request'].user
@@ -213,7 +243,7 @@ class ConversationCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         participant1 = self.context['request'].user
-        participant2 = self.other_user 
+        participant2 = self.other_user
 
         conversation = Conversation.objects.filter(
             Q(participant1=participant1, participant2=participant2) |
@@ -230,6 +260,5 @@ class ConversationCreateSerializer(serializers.ModelSerializer):
         return conversation
 
 # --- Serializer for User Status Update (for Swagger only) ---
-# This is explicitly for the UserStatusUpdateView's PATCH request body.
 class UserStatusUpdateSerializer(serializers.Serializer):
     online = serializers.BooleanField(required=True, help_text='Set true for online, false for offline')

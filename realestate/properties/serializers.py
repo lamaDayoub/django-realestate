@@ -179,12 +179,12 @@ class RatingSerializer(serializers.ModelSerializer): # <--- NEW CLASS
     """
     user_id = serializers.ReadOnlyField(source='user.id') # Read-only ID of the user who rated
     user_email = serializers.ReadOnlyField(source='user.email') # Read-only email of the user who rated
-    # No comment, created_at, updated_at fields here as per simplified Rating model
+    property_rating = serializers.SerializerMethodField()
 
     class Meta:
         model = Rating
-        fields = ['id', 'user_id', 'user_email', 'property', 'value'] # No comment field
-        read_only_fields = ['id', 'user_id', 'user_email'] # property is write_only in views context
+        fields = ['id', 'user_id', 'user_email', 'property', 'value', 'property_rating'] # No comment field
+        read_only_fields = ['id', 'user_id', 'user_email', 'property_rating'] # property is write_only in views context
         extra_kwargs = {
             'property': {'write_only': True} # Property ID is sent in the URL, not body
         }
@@ -209,3 +209,14 @@ class RatingSerializer(serializers.ModelSerializer): # <--- NEW CLASS
             raise serializers.ValidationError("You have already rated this property.")
 
         return data
+    def get_property_rating(self, obj):
+        """
+        Retrieves the average rating of the associated property.
+        It explicitly refreshes the property instance to ensure the latest average rating
+        (updated by the post_save signal) is returned.
+        """
+        # obj is the Rating instance. obj.property is the related Property instance.
+        # Call refresh_from_db() on the property instance to get its latest state from the database.
+        # This is crucial because the signal updates the Property AFTER the Rating is saved.
+        obj.property.refresh_from_db() 
+        return obj.property.rating

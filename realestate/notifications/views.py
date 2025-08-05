@@ -133,3 +133,78 @@ class UnreadNotificationCountView(APIView):
         user = request.user
         unread_count = Notification.objects.filter(recipient=user, is_read=False).count()
         return Response({'unread_count': unread_count}, status=status.HTTP_200_OK)
+    
+    
+class NotificationMarkSingleReadView(APIView):
+    """
+    API endpoint to mark a specific notification as read by its ID.
+    This view broadcasts a real-time update to the user's clients.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="Mark a specific notification as read by its ID. The user must be the recipient of the notification. This action broadcasts a real-time update to all of the user's connected clients.",
+        manual_parameters=[
+            openapi.Parameter(
+                'pk',
+                openapi.IN_PATH,
+                description="The ID of the notification to mark as read.",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="Notification marked as read successfully.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={'detail': openapi.Schema(type=openapi.TYPE_STRING)}
+                )
+            ),
+            403: "Forbidden (e.g., trying to mark another user's notification as read).",
+            404: "Notification not found.",
+            401: "Unauthorized"
+        },
+        security=[{'Bearer': []}]
+    )
+    def post(self, request, pk, *args, **kwargs):
+        user = request.user
+
+        try:
+            notification = Notification.objects.get(pk=pk)
+        except Notification.DoesNotExist:
+            return Response({"detail": "Notification not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if notification.recipient != user:
+            return Response({"detail": "You do not have permission to mark this notification as read."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Mark the notification as read if it's not already
+        if not notification.is_read:
+            notification.mark_as_read()
+
+            # --- NEW: Broadcast single read status and new unread count ---
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                # 1. Broadcast that a specific notification was read
+                async_to_sync(channel_layer.group_send)(
+                    f'user_{user.id}_notifications',
+                    {
+                        'type': 'notification.single_read_update',
+                        'notification_id': notification.id
+                    }
+                )
+                print(f"DEBUG: Dispatched real-time single-read update for notification {notification.id} for {user.email}.")
+
+                # 2. Recalculate and broadcast the new total unread count
+                total_unread_count = Notification.objects.filter(recipient=user, is_read=False).count()
+                async_to_sync(channel_layer.group_send)(
+                    f'user_{user.id}_notifications',
+                    {
+                        'type': 'notification.unread_count_update',
+                        'count': total_unread_count
+                    }
+                )
+                print(f"DEBUG: Dispatched real-time unread count update ({total_unread_count}) for {user.email}.")
+            # --- END NEW ---
+
+        return Response({"detail": "Notification marked as read."}, status=status.HTTP_200_OK)

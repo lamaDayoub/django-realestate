@@ -142,6 +142,19 @@ class NotificationConsumer(AsyncWebsocketConsumer):
             'type': 'notification.unread_count_update',
             'count': event['count']
         }))
+        
+    # --- NEW: Handler for single-notification read update ---
+    async def notification_single_read_update(self, event):
+        """
+        Handles an update for a single notification being marked as read.
+        Sends the ID of the updated notification to the client.
+        """
+        print(f"DEBUG: Notification consumer received 'notification.single_read_update' for user {self.user.email}. Notification ID: {event['notification_id']}.")
+        await self.send(text_data=json.dumps({
+            'type': 'notification.single_read_update',
+            'notification_id': event['notification_id']
+        }))
+    # --- END NEW ---
 
     # --- Database Operations (Async-safe) ---
     @database_sync_to_async

@@ -5,15 +5,16 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.db.models import Q , Max, Subquery, OuterRef
 from django.utils import timezone
-from drf_yasg.utils import swagger_auto_schema, no_body # Import no_body for clarity
+from drf_yasg.utils import swagger_auto_schema, no_body  # Import no_body for clarity
 from drf_yasg import openapi
+
 from .models import Conversation, Message 
 from django.db import models
 from asgiref.sync import async_to_sync 
-
+from django.db.models.functions import Coalesce
 from django.db.models import Count
 from channels.layers import get_channel_layer 
-
+from drf_yasg.openapi import Schema
 
 from .serializers import (
     ConversationListSerializer, 
@@ -74,11 +75,12 @@ class UserStatusUpdateView(generics.UpdateAPIView):
             'last_seen': damascus_time.isoformat() if damascus_time else None
         }, status=status.HTTP_200_OK)
 
-# --- API endpoint for Listing Conversations ---
+
 class ConversationListView(generics.ListAPIView):
     """
     API endpoint to list all conversations for the authenticated user.
     Includes details of the other participant, last message, and unread count.
+    Also includes a total unread count across all conversations.
     """
     serializer_class = ConversationListSerializer
     permission_classes = [IsAuthenticated]
@@ -92,16 +94,13 @@ class ConversationListView(generics.ListAPIView):
             conversation=OuterRef('pk')
         ).order_by('-created_at').values('id', 'content', 'message_type', 'is_read', 'created_at')[:1]
 
-        # 2. Define a Subquery to count unread messages from the OTHER participant
-        unread_count_subquery = Message.objects.filter(
-            conversation=OuterRef('pk'),
-            sender__in=Subquery(
-                User.objects.filter(
-                    Q(conversations_as_p1=OuterRef('pk')) | Q(conversations_as_p2=OuterRef('pk'))
-                ).exclude(id=user.id).values('pk')[:1] # Get the other user's ID
-            ),
-            is_read=False
-        ).order_by().values('conversation').annotate(count=models.Count('pk')).values('count')
+        # 2. Direct annotation for unread_count for EACH conversation
+        #    Count messages in this conversation (OuterRef) that are unread (is_read=False)
+        #    AND were NOT sent by the current user (sender != user).
+        unread_count_annotation = models.Count(
+            'messages', # Count messages related to this conversation
+            filter=Q(messages__is_read=False, messages__sender__isnull=False) & ~Q(messages__sender=user)
+        )
 
         # 3. Build the final queryset with both annotations
         queryset = Conversation.objects.filter(
@@ -114,98 +113,253 @@ class ConversationListView(generics.ListAPIView):
             last_message_is_read=Subquery(last_message_subquery.values('is_read')),
             last_message_created_at=Subquery(last_message_subquery.values('created_at')),
 
-            # Annotate the queryset with the unread count
-            unread_count=Subquery(unread_count_subquery, output_field=models.IntegerField()),
+            # Annotate the queryset with the unread count, using Coalesce to default to 0
+            unread_count=Coalesce(unread_count_annotation, 0),
         ).select_related(
-            'participant1__profile', 
+            'participant1__profile',
             'participant2__profile'
         ).order_by('-updated_at') # Order by last updated conversation
 
         return queryset
 
-    @swagger_auto_schema(...) # Keep your existing swagger_auto_schema
+    
+    @swagger_auto_schema(
+    operation_description="Retrieve all conversations for the authenticated user. Includes details of the other participant, last message, and unread count. The response also includes a 'total_unread_count' for all chats.",
+    responses={
+        200: openapi.Response(
+            description="Conversations retrieved successfully.",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'total_unread_count': openapi.Schema(type=openapi.TYPE_INTEGER, description="Total unread messages across all conversations for the user."),
+                    'count': openapi.Schema(type=openapi.TYPE_INTEGER, description="Total number of conversations."),
+                    'next': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_URI, nullable=True),
+                    'previous': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_URI, nullable=True),
+                    'results': openapi.Schema(
+                        type=openapi.TYPE_ARRAY,
+                        items=openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            description="Conversation object (see ConversationListSerializer)"
+                            # Optional: You can leave this empty and DRF-YASG will still use ConversationListSerializer
+                        )
+                    )
+                }
+            )
+        ),
+        401: 'Unauthorized'
+    },
+    security=[{'Bearer': []}]
+    )
     def get(self, request, *args, **kwargs):
-        return super().get(request, *args, **kwargs)
+        # Get the standard paginated response
+        response = super().get(request, *args, **kwargs)
+        
+        # Calculate the total unread count for the current user
+        # This query is robust and counts messages NOT sent by the user and NOT read by the user
+        total_unread_chat_messages = Message.objects.filter(
+            Q(conversation__participant1=request.user) | Q(conversation__participant2=request.user),
+            is_read=False
+        ).exclude(sender=request.user).count()
+
+        # Create a new response data structure
+        custom_response_data = {
+            'total_unread_count': total_unread_chat_messages,
+            'count': response.data['count'],
+            'next': response.data['next'],
+            'previous': response.data['previous'],
+            'results': response.data['results'],
+        }
+        
+        # Return the new custom response
+        return Response(custom_response_data, status=status.HTTP_200_OK)
 # --- API endpoint for Retrieving Messages in a Conversation ---
+# class ConversationDetailView(generics.ListAPIView):
+#     """
+#     API endpoint to retrieve all messages for a specific conversation.
+#     Messages from the other participant are automatically marked as read when fetched.
+#     """
+#     serializer_class = MessageSerializer
+#     permission_classes = [IsAuthenticated]
+#     pagination_class = None 
+
+#     def get_queryset(self):
+#         if getattr(self, 'swagger_fake_view', False):
+#             return Message.objects.none()
+
+#         user = self.request.user
+#         conversation_id = self.kwargs['pk'] 
+
+#         queryset = Message.objects.filter(
+#             conversation_id=conversation_id,
+#             conversation__in=Conversation.objects.filter(
+#                 Q(participant1=user) | Q(participant2=user)
+#             )
+#         ).order_by('created_at').select_related('sender__profile')
+
+#         # --- NEW: Real-time updates after marking messages as read ---
+#         messages_to_mark_read = queryset.exclude(sender=user).filter(is_read=False)
+
+#         # Capture the count BEFORE updating, to know if any were actually unread
+#         initial_unread_in_conv_count = messages_to_mark_read.count()
+
+#         if initial_unread_in_conv_count > 0: # Only update if there were unread messages
+#             messages_to_mark_read.update(is_read=True)
+#             print(f"DEBUG: ConversationDetailView marked {initial_unread_in_conv_count} messages as read for conv {conversation_id}.")
+
+#             channel_layer = get_channel_layer()
+#             if channel_layer:
+#                 # 1. Dispatch update for THIS conversation's unread count (now 0)
+#                 # And update last_message for consistency
+#                 conversation = Conversation.objects.get(id=conversation_id) # Get conversation object
+#                 other_participant = conversation.get_other_participant(user) # Get other participant
+
+#                 # Calculate last message data for update
+#                 last_msg_obj = conversation.messages.order_by('-created_at').first()
+#                 last_message_data = None
+#                 if last_msg_obj:
+#                     # Re-use MessageSerializer to get formatted data
+#                     from chat.serializers import MessageSerializer # Import locally to avoid circular
+#                     last_message_data = MessageSerializer(last_msg_obj, context={'request': self.request}).data
+#                 conv_created_at = timezone.localtime(conversation.created_at).isoformat()
+#                 conv_updated_at = timezone.localtime(conversation.updated_at).isoformat()
+#                 async_to_sync(channel_layer.group_send)(
+#                     f'user_{user.id}_conversation_list', # Group for current user's list updates
+#                     {
+#                         'type': 'chat.conversation_update',
+#                         'conversation_id': conversation.id,
+#                         'last_message_data': last_message_data,
+#                         'unread_count_for_this_conversation': 0, # Now 0 unread in this chat
+#                         'other_participant_details': ChatParticipantSerializer(other_participant, context={'request': self.request}).data,
+#                         'is_new_conversation': False, # Not a new conversation, just an update
+#                         'created_at': conv_created_at, # <--- ADD THIS
+#                         'updated_at': conv_updated_at,
+                    
+#                     }
+#                 )
+#                 print(f"DEBUG: Dispatched real-time conversation update (unread 0) for conv {conversation.id} to {user.email}.")
+
+#                 # 2. Dispatch update for GLOBAL chat unread count
+#                 total_unread_chat_messages = Message.objects.filter(conversation__in=user.conversations_as_p1.all() | user.conversations_as_p2.all(), is_read=False).exclude(sender=user).count()
+
+#                 async_to_sync(channel_layer.group_send)(
+#                     f'user_{user.id}_conversation_list', # Same group
+#                     {
+#                         'type': 'chat.total_unread_count_update',
+#                         'count': total_unread_chat_messages
+#                     }
+#                 )
+#                 print(f"DEBUG: Dispatched real-time global unread chat count update ({total_unread_chat_messages}) to {user.email}.")
+#         # --- END NEW ---
+
+#         return queryset
 class ConversationDetailView(generics.ListAPIView):
     """
     API endpoint to retrieve all messages for a specific conversation.
-    Messages from the other participant are automatically marked as read when fetched.
+    Messages from the other participant are automatically marked as read and a real-time
+    broadcast is sent to the sender's client.
     """
     serializer_class = MessageSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = None 
+    pagination_class = None
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Message.objects.none()
 
         user = self.request.user
-        conversation_id = self.kwargs['pk'] 
+        conversation_id = self.kwargs['pk']
+
+        # Ensure the user is a participant in the conversation
+        try:
+            # FIX: Correctly combine ID lookup with Q objects for participant check
+            # Combine the ID filter with the OR condition using the & operator
+            conversation = Conversation.objects.get(
+                Q(id=conversation_id) & (Q(participant1=user) | Q(participant2=user))
+            )
+        except Conversation.DoesNotExist:
+            # If the conversation doesn't exist or the user is not a participant,
+            # return an empty queryset. DRF will then return an empty list for messages.
+            # For a 404 on the conversation itself, it's often handled by a custom
+            # exception handler or by raising Http404 in the dispatch method.
+            # For get_queryset, returning an empty queryset is the standard way to indicate no data.
+            print(f"DEBUG: Conversation {conversation_id} not found or user {user.id} not a participant.")
+            return Message.objects.none() # Return empty queryset if conversation not found or user not participant
+
 
         queryset = Message.objects.filter(
-            conversation_id=conversation_id,
-            conversation__in=Conversation.objects.filter(
-                Q(participant1=user) | Q(participant2=user)
-            )
+            conversation=conversation # Filter by the validated conversation object
         ).order_by('created_at').select_related('sender__profile')
 
-        # --- NEW: Real-time updates after marking messages as read ---
-        messages_to_mark_read = queryset.exclude(sender=user).filter(is_read=False)
+        messages_to_mark_read = queryset.filter(is_read=False).exclude(sender=user)
+        message_ids_to_mark_read = list(messages_to_mark_read.values_list('id', flat=True))
 
-        # Capture the count BEFORE updating, to know if any were actually unread
-        initial_unread_in_conv_count = messages_to_mark_read.count()
-
-        if initial_unread_in_conv_count > 0: # Only update if there were unread messages
+        if message_ids_to_mark_read:
+            # Perform the bulk database update
             messages_to_mark_read.update(is_read=True)
-            print(f"DEBUG: ConversationDetailView marked {initial_unread_in_conv_count} messages as read for conv {conversation_id}.")
+            print(f"DEBUG: ConversationDetailView marked {len(message_ids_to_mark_read)} messages as read for conv {conversation_id}.")
 
+            # Dispatch real-time updates via channel layer
             channel_layer = get_channel_layer()
             if channel_layer:
-                # 1. Dispatch update for THIS conversation's unread count (now 0)
-                # And update last_message for consistency
-                conversation = Conversation.objects.get(id=conversation_id) # Get conversation object
-                other_participant = conversation.get_other_participant(user) # Get other participant
+                # 1. Get the sender of the messages that were just read
+                other_participant = conversation.get_other_participant(user)
 
-                # Calculate last message data for update
+                # 2. Broadcast a bulk read confirmation to the conversation group
+                async_to_sync(channel_layer.group_send)(
+                    f'chat_{conversation_id}',
+                    {
+                        'type': 'messages_read_confirmation',
+                        'reader_user_id': str(user.id),
+                        'message_ids': [str(mid) for mid in message_ids_to_mark_read]
+                    }
+                )
+                print(f"DEBUG: Broadcasted bulk read confirmation for conv {conversation_id} to group.")
+
+                # 3. Broadcast the new unread count for THIS specific conversation (which is now 0)
+                #    We need the last message data to update the conversation list entry on the client
                 last_msg_obj = conversation.messages.order_by('-created_at').first()
                 last_message_data = None
                 if last_msg_obj:
-                    # Re-use MessageSerializer to get formatted data
-                    from chat.serializers import MessageSerializer # Import locally to avoid circular
+                    # Import MessageSerializer locally to avoid circular dependency
+                    from chat.serializers import MessageSerializer
                     last_message_data = MessageSerializer(last_msg_obj, context={'request': self.request}).data
-                conv_created_at = timezone.localtime(conversation.created_at).isoformat()
-                conv_updated_at = timezone.localtime(conversation.updated_at).isoformat()
+                
+                # Get participant details for the current user (reader) to send to their own list
+                reader_participant_details = ChatParticipantSerializer(user, context={'request': self.request}).data
+
                 async_to_sync(channel_layer.group_send)(
-                    f'user_{user.id}_conversation_list', # Group for current user's list updates
+                    f'user_{user.id}_conversation_list', # Send to the reader's conversation list group
                     {
                         'type': 'chat.conversation_update',
                         'conversation_id': conversation.id,
                         'last_message_data': last_message_data,
-                        'unread_count_for_this_conversation': 0, # Now 0 unread in this chat
-                        'other_participant_details': ChatParticipantSerializer(other_participant, context={'request': self.request}).data,
-                        'is_new_conversation': False, # Not a new conversation, just an update
-                        'created_at': conv_created_at, # <--- ADD THIS
-                        'updated_at': conv_updated_at,
-                    
+                        'unread_count_for_this_conversation': 0, # Explicitly 0 for this conversation for the reader
+                        'other_participant_details': ChatParticipantSerializer(other_participant, context={'request': self.request}).data, # Details of the other person in the chat
+                        'is_new_conversation': False,
+                        'created_at': timezone.localtime(conversation.created_at).isoformat(),
+                        'updated_at': timezone.localtime(conversation.updated_at).isoformat(),
                     }
                 )
-                print(f"DEBUG: Dispatched real-time conversation update (unread 0) for conv {conversation.id} to {user.email}.")
+                print(f"DEBUG: Dispatched real-time conversation update (unread 0 for this conv) for conv {conversation.id} to {user.email}.")
 
-                # 2. Dispatch update for GLOBAL chat unread count
-                total_unread_chat_messages = Message.objects.filter(conversation__in=user.conversations_as_p1.all() | user.conversations_as_p2.all(), is_read=False).exclude(sender=user).count()
+
+                # 4. Recalculate and broadcast the NEW total unread count for the user who read the messages.
+                total_unread_count = Message.objects.filter(
+                    Q(conversation__participant1=user) | Q(conversation__participant2=user),
+                    is_read=False
+                ).exclude(sender=user).count()
 
                 async_to_sync(channel_layer.group_send)(
-                    f'user_{user.id}_conversation_list', # Same group
+                    f'user_{user.id}_conversation_list',
                     {
                         'type': 'chat.total_unread_count_update',
-                        'count': total_unread_chat_messages
+                        'count': total_unread_count
                     }
                 )
-                print(f"DEBUG: Dispatched real-time global unread chat count update ({total_unread_chat_messages}) to {user.email}.")
-        # --- END NEW ---
+                print(f"DEBUG: Dispatched new total unread count ({total_unread_count}) for {user.email}.")
 
         return queryset
+
 
     @swagger_auto_schema(
         operation_description="Retrieve all messages for a specific conversation. Messages from the other participant will be automatically marked as read upon retrieval.",
@@ -386,3 +540,60 @@ class FileUploadView(generics.CreateAPIView):
         # Return the custom response. This entirely bypasses the internal
         # `get_success_headers(serializer.data)` call that was causing the AttributeError.
         return Response({'file_url': file_url}, status=status.HTTP_201_CREATED)
+    
+    
+
+class UnreadMessagesInConversationView(generics.ListAPIView):
+    """
+    API endpoint to get a list of unread message IDs for the authenticated user
+    within a specific conversation.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = MessageSerializer # We'll override list to return just IDs, but need a serializer for Swagger
+
+    @swagger_auto_schema(
+        operation_description="Get a list of unread message IDs for the authenticated user within a specific conversation. These are messages sent by the other participant that the current user has not yet read.",
+        manual_parameters=[
+            openapi.Parameter(
+                'pk',
+                openapi.IN_PATH,
+                description="The ID of the conversation.",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="List of unread message IDs.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Schema(type=openapi.TYPE_INTEGER, description="Message ID")
+                )
+            ),
+            401: "Unauthorized",
+            403: "Forbidden (User is not a participant in the conversation).",
+            404: "Conversation not found."
+        },
+        security=[{'Bearer': []}]
+    )
+    def get(self, request, pk, *args, **kwargs):
+        user = request.user
+        conversation_id = pk
+
+        try:
+            # Verify the conversation exists and the user is a participant
+            conversation = Conversation.objects.get(
+                Q(id=conversation_id) & (Q(participant1=user) | Q(participant2=user))
+            )
+        except Conversation.DoesNotExist:
+            return Response({"detail": "Conversation not found or you are not a participant."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Get unread messages from the other participant
+        unread_message_ids = Message.objects.filter(
+            conversation=conversation,
+            is_read=False
+        ).exclude(
+            sender=user
+        ).values_list('id', flat=True) # Get only the IDs as a flat list
+
+        return Response(list(unread_message_ids), status=status.HTTP_200_OK)
