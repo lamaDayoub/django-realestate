@@ -22,7 +22,7 @@ from django.contrib.contenttypes.models import ContentType
 from notifications.models import Notification
 from notifications.tasks import dispatch_notification_task
 from django.db.models.signals import post_save
-    
+from drf_yasg.openapi import Schema, TYPE_OBJECT, TYPE_ARRAY, TYPE_INTEGER, TYPE_STRING, FORMAT_URI, TYPE_NUMBER, TYPE_BOOLEAN
 class PropertyListView(ListAPIView):
     """
     Advanced property search endpoint with flexible filtering options.
@@ -190,17 +190,159 @@ class PropertyDetailView(APIView):
         serializer = PropertyDetailSerializer(property_instance, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
     
+# class AddPropertyView(APIView):
+#     permission_classes = [IsAuthenticated, IsSeller]
+
+#     @swagger_auto_schema(
+#         operation_id="add_property",
+#         operation_description="""
+#         Add a new property.
+#         Only users in seller mode can perform this action.
+#         Property must be unique (combination of type, city, area, and price).
+#         """,
+#         # FIX: Explicitly define the request_body schema including property_registry_number
+#         request_body=openapi.Schema(
+#             type=openapi.TYPE_OBJECT,
+#             required=[
+#                 'ptype', 'city', 'number_of_rooms', 'area', 'price',
+#                 'is_for_rent', 'latitude', 'longitude'
+#             ],
+#             properties={
+#                 'ptype': openapi.Schema(type=openapi.TYPE_STRING, enum=[choice[0] for choice in Property.PROPERTY_TYPES]),
+#                 'city': openapi.Schema(type=openapi.TYPE_STRING),
+#                 'number_of_rooms': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                 'bathrooms': openapi.Schema(type=openapi.TYPE_INTEGER), # Removed required=False
+#                 'area': openapi.Schema(type=openapi.TYPE_NUMBER),
+#                 'location_text': openapi.Schema(type=openapi.TYPE_STRING, required=False),
+#                 'price': openapi.Schema(type=openapi.TYPE_NUMBER),
+#                 'is_for_rent': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+#                 'details': openapi.Schema(type=openapi.TYPE_STRING, required=False),
+#                 'latitude': openapi.Schema(type=openapi.TYPE_NUMBER),
+#                 'longitude': openapi.Schema(type=openapi.TYPE_NUMBER),
+#                 # NEW: Add property_registry_number for input
+#                 'property_registry_number': openapi.Schema(
+#                     type=openapi.TYPE_STRING,
+#                     description="Official registration number of the property (optional for input).",
+#                     required=False,
+#                     nullable=True,
+#                     max_length=50
+#                 ),
+#             },
+#             # You can also use example for the whole schema if you want
+#         ),
+#         responses={
+#             201: openapi.Response("Property created", PropertySerializer),
+#             400: openapi.Response("Bad request", examples={
+#                 "application/json": {
+#                     "non_field_errors": ["You already have a similar property listed."]
+#                 }
+#             }),
+#             403: "Forbidden. You must be in seller mode."
+#         }
+#     )
+#     def post(self, request):
+#         serializer = PropertySerializer(
+#             data=request.data,
+#             context={'request': request}
+#         )
+        
+#         if serializer.is_valid():
+#             serializer.save(owner=request.user)
+#             return Response(serializer.data, status=status.HTTP_201_CREATED)
+            
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+# class EditPropertyView(APIView):
+#     permission_classes = [IsAuthenticated, IsSeller]
+
+#     @swagger_auto_schema(
+#         operation_id="edit_property",
+#         operation_description="Partially update an existing property. Only the owner of the property (in seller mode) can edit it.",
+#         # FIX: Explicitly define the request_body schema including property_registry_number
+#         request_body=openapi.Schema(
+#             type=openapi.TYPE_OBJECT,
+#             properties={
+#                 'ptype': openapi.Schema(type=openapi.TYPE_STRING, enum=[choice[0] for choice in Property.PROPERTY_TYPES], required=False),
+#                 'city': openapi.Schema(type=openapi.TYPE_STRING, required=False),
+#                 'number_of_rooms': openapi.Schema(type=openapi.TYPE_INTEGER, required=False),
+#                 'bathrooms': openapi.Schema(type=openapi.TYPE_INTEGER, required=False),
+#                 'area': openapi.Schema(type=openapi.TYPE_NUMBER, required=False),
+#                 'location_text': openapi.Schema(type=openapi.TYPE_STRING, required=False),
+#                 'price': openapi.Schema(type=openapi.TYPE_NUMBER, required=False),
+#                 'is_for_rent': openapi.Schema(type=openapi.TYPE_BOOLEAN, required=False),
+#                 'details': openapi.Schema(type=openapi.TYPE_STRING, required=False),
+#                 'latitude': openapi.Schema(type=openapi.TYPE_NUMBER, required=False),
+#                 'longitude': openapi.Schema(type=openapi.TYPE_NUMBER, required=False),
+#                 'active': openapi.Schema(type=openapi.TYPE_BOOLEAN, required=False), # Allow changing active status
+#                 # NEW: Add property_registry_number for input
+#                 'property_registry_number': openapi.Schema(
+#                     type=openapi.TYPE_STRING,
+#                     description="Official registration number of the property (optional for input).",
+#                     required=False,
+#                     nullable=True,
+#                     max_length=50
+#                 ),
+#             },
+#             # No 'required' array at top level for PATCH, as all fields are optional
+#         ),
+#         responses={
+#             200: openapi.Response(description="Property updated successfully.", schema=PropertySerializer),
+#             400: "Bad request. Invalid data provided.",
+#             403: "Forbidden. You must be the owner of the property and in seller mode to edit it.",
+#             404: "Not found. The property does not exist."
+#         }
+#     )
+#     def patch(self, request, property_id):
+#         try:
+#             property_instance = Property.objects.get(id=property_id, owner=request.user)
+#         except Property.DoesNotExist:
+#             return Response({"detail": "Property not found."}, status=status.HTTP_404_NOT_FOUND)
+
+#         serializer = PropertySerializer(property_instance, data=request.data, partial=True, context={'request': request})
+#         if serializer.is_valid():
+#             serializer.save()
+#             return Response(serializer.data, status=status.HTTP_200_OK)
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+ 
 class AddPropertyView(APIView):
     permission_classes = [IsAuthenticated, IsSeller]
 
     @swagger_auto_schema(
         operation_id="add_property",
         operation_description="""
-        Add a new property. 
+        Add a new property.
         Only users in seller mode can perform this action.
         Property must be unique (combination of type, city, area, and price).
         """,
-        request_body=PropertySerializer,
+        # FIX: Explicitly define the request_body schema including property_registry_number
+        request_body=openapi.Schema(
+            type=TYPE_OBJECT, # Use imported TYPE_OBJECT
+            required=[
+                'ptype', 'city', 'number_of_rooms', 'area', 'price',
+                'is_for_rent', 'latitude', 'longitude'
+            ],
+            properties={
+                'ptype': Schema(type=TYPE_STRING, enum=[choice[0] for choice in Property.PROPERTY_TYPES]), # Use imported Schema, TYPE_STRING
+                'city': Schema(type=TYPE_STRING), # Use imported Schema, TYPE_STRING
+                'number_of_rooms': Schema(type=TYPE_INTEGER), # Use imported Schema, TYPE_INTEGER
+                'bathrooms': Schema(type=TYPE_INTEGER), # Use imported Schema, TYPE_INTEGER
+                'area': Schema(type=TYPE_NUMBER), # Use imported TYPE_NUMBER
+                'location_text': Schema(type=TYPE_STRING, nullable=True), # Use imported Schema, TYPE_STRING, nullable=True
+                'price': Schema(type=TYPE_NUMBER), # Use imported TYPE_NUMBER
+                'is_for_rent': Schema(type=TYPE_BOOLEAN), # Use imported TYPE_BOOLEAN
+                'details': Schema(type=TYPE_STRING, nullable=True), # Use imported Schema, TYPE_STRING, nullable=True
+                'latitude': Schema(type=TYPE_NUMBER), # Use imported TYPE_NUMBER
+                'longitude': Schema(type=TYPE_NUMBER), # Use imported TYPE_NUMBER
+                # NEW: Add property_registry_number for input
+                'property_registry_number': Schema(
+                    type=TYPE_STRING, # Use imported TYPE_STRING
+                    description="Official registration number of the property (optional for input).",
+                    nullable=True, # Use nullable=True instead of required=False for optional fields in properties
+                    max_length=50
+                ),
+            },
+            # You can also use example for the whole schema if you want
+        ),
         responses={
             201: openapi.Response("Property created", PropertySerializer),
             400: openapi.Response("Bad request", examples={
@@ -229,7 +371,32 @@ class EditPropertyView(APIView):
     @swagger_auto_schema(
         operation_id="edit_property",
         operation_description="Partially update an existing property. Only the owner of the property (in seller mode) can edit it.",
-        request_body=PropertySerializer,
+        # FIX: Explicitly define the request_body schema including property_registry_number
+        request_body=openapi.Schema(
+            type=TYPE_OBJECT, # Use imported TYPE_OBJECT
+            properties={
+                'ptype': Schema(type=TYPE_STRING, enum=[choice[0] for choice in Property.PROPERTY_TYPES], nullable=True), # Use imported Schema, TYPE_STRING, nullable=True
+                'city': Schema(type=TYPE_STRING, nullable=True), # Use imported Schema, TYPE_STRING, nullable=True
+                'number_of_rooms': Schema(type=TYPE_INTEGER, nullable=True), # Use imported Schema, TYPE_INTEGER, nullable=True
+                'bathrooms': Schema(type=TYPE_INTEGER, nullable=True), # Use imported Schema, TYPE_INTEGER, nullable=True
+                'area': Schema(type=TYPE_NUMBER, nullable=True), # Use imported TYPE_NUMBER, nullable=True
+                'location_text': Schema(type=TYPE_STRING, nullable=True), # Use imported Schema, TYPE_STRING, nullable=True
+                'price': Schema(type=TYPE_NUMBER, nullable=True), # Use imported TYPE_NUMBER, nullable=True
+                'is_for_rent': Schema(type=TYPE_BOOLEAN, nullable=True), # Use imported TYPE_BOOLEAN, nullable=True
+                'details': Schema(type=TYPE_STRING, nullable=True), # Use imported Schema, TYPE_STRING, nullable=True
+                'latitude': Schema(type=TYPE_NUMBER, nullable=True), # Use imported TYPE_NUMBER, nullable=True
+                'longitude': Schema(type=TYPE_NUMBER, nullable=True), # Use imported TYPE_NUMBER, nullable=True
+                'active': Schema(type=TYPE_BOOLEAN, nullable=True), # Use imported TYPE_BOOLEAN, nullable=True
+                # NEW: Add property_registry_number for input
+                'property_registry_number': Schema(
+                    type=TYPE_STRING, # Use imported TYPE_STRING
+                    description="Official registration number of the property (optional for input).",
+                    nullable=True, # Use nullable=True instead of required=False
+                    max_length=50
+                ),
+            },
+            # No 'required' array at top level for PATCH, as all fields are optional
+        ),
         responses={
             200: openapi.Response(description="Property updated successfully.", schema=PropertySerializer),
             400: "Bad request. Invalid data provided.",

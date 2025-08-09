@@ -20,9 +20,10 @@ from .serializers import UserCreateSerializer,ProfileSerializer,ChangePasswordSe
 from .models import Profile,PasswordHistory,VerificationCode
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.parsers import MultiPartParser
-from .serializers import ProfileSerializer,PublicProfileSerializer
+from .serializers import ProfileSerializer,PublicProfileSerializer,ChargePointsSerializer
 from rest_framework.generics import GenericAPIView
 from rest_framework_simplejwt.tokens import OutstandingToken, BlacklistedToken
+from django.db.models import F 
 User = get_user_model()
 
 
@@ -387,6 +388,10 @@ class ProfileView(RetrieveUpdateAPIView):
                                 "photo": openapi.Schema(
                                     type=openapi.TYPE_STRING,
                                     description="URL of the user's profile photo (if uploaded)."
+                                ),
+                                "national_id_number": openapi.Schema(
+                                    type=openapi.TYPE_STRING,
+                                    description="National identity number for verification purposes. Can be updated by user."
                                 ),
                             },
                         ),
@@ -908,5 +913,71 @@ class ToggleSellerModeView(APIView):
         # Return the updated 'is_seller' status
         return Response(
             {"is_seller": user.is_seller},
+            status=status.HTTP_200_OK
+        )
+        
+        
+class ChargePointsView(APIView):
+    """
+    API endpoint to simulate charging a user's account with points.
+    This is a dummy API for demonstration purposes and does not integrate with real payment gateways.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = ChargePointsSerializer
+
+    @swagger_auto_schema(
+        operation_id="charge_points",
+        operation_description="""
+        Simulate charging the authenticated user's account with points.
+        This API is for demonstration purposes only.
+        """,
+        request_body=ChargePointsSerializer,
+        responses={
+            200: openapi.Response(
+                description="Points charged successfully.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING, description="Success message."),
+                        'new_points_balance': openapi.Schema(type=openapi.TYPE_INTEGER, description="The user's new points balance.")
+                    }
+                ),
+                examples={
+                    "application/json": {
+                        "detail": "Points charged successfully.",
+                        "new_points_balance": 600
+                    }
+                }
+            ),
+            400: openapi.Response(
+                description="Bad request. Invalid input or dummy validation failed.",
+                examples={
+                    "application/json": {
+                        "bank_name": ["Invalid bank name. Use 'Albarakeh bank', 'Pemo bank', or 'PayPal'."]
+                    }
+                }
+            ),
+            401: "Unauthorized. Authentication required."
+        },
+        security=[{'Bearer': []}]
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        amount_to_charge = serializer.validated_data['amount']
+        user = request.user
+
+        # Simulate adding points (atomic update for safety, though dummy)
+        with transaction.atomic():
+            user.points = F('points') + (amount_to_charge*100)
+            user.save(update_fields=['points'])
+            user.refresh_from_db() # Get the updated points value from the database
+
+        return Response(
+            {
+                "detail": "Points charged successfully.",
+                "new_points_balance": user.points
+            },
             status=status.HTTP_200_OK
         )

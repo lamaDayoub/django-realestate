@@ -49,6 +49,17 @@ class Property(models.Model):
         validators=[MinValueValidator(0.00), MaxValueValidator(5.00)], # Assuming 0-5 star rating
         help_text="Average rating of the property (0.00 to 5.00)"
     )
+    property_registry_number = models.CharField(
+        max_length=50, # Adjust max_length based on national registry number format
+        unique=True,
+        blank=True,
+        null=True,
+        help_text="Official registration number of the property from the national institute."
+    )
+    is_owner_verified = models.BooleanField(
+        default=False,
+        help_text="Indicates if the property owner's relationship to this property has been officially verified."
+    )
     
     class Meta:
         constraints = [

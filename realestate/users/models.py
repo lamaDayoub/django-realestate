@@ -87,7 +87,18 @@ class Profile(models.Model):
     gender = models.CharField(max_length=1, choices=GENDER_CHOICES, blank=True, null=True)
     country = models.CharField(max_length=100, blank=True, null=True)
     phone_number = models.CharField(max_length=15, blank=True, null=True)  # Adjust max_length as needed
-    
+    # NEW FIELDS FOR IDENTITY VERIFICATION
+    national_id_number = models.CharField(
+        max_length=20, # Adjust max_length based on Syrian National ID format
+        unique=True,
+        blank=True,
+        null=True,
+        help_text="National identity number for verification purposes."
+    )
+    is_identity_verified = models.BooleanField(
+        default=False,
+        help_text="Indicates if the user's identity has been verified by the national institute."
+    )
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
     

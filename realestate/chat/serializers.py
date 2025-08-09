@@ -262,3 +262,55 @@ class ConversationCreateSerializer(serializers.ModelSerializer):
 # --- Serializer for User Status Update (for Swagger only) ---
 class UserStatusUpdateSerializer(serializers.Serializer):
     online = serializers.BooleanField(required=True, help_text='Set true for online, false for offline')
+
+
+class ChatStatusCheckSerializer(serializers.Serializer):
+    """
+    Serializer for the response of the chat status check API.
+    """
+    status_code = serializers.CharField(
+        max_length=50,
+        help_text="Status of the chat: NEW_CHAT_AVAILABLE, CHAT_ACTIVE, CHAT_EXPIRED_REACTIVATE, INSUFFICIENT_POINTS."
+    )
+    conversation_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of the conversation, if it exists."
+    )
+    cost = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+        help_text="Points cost for new chat or reactivation."
+    )
+    current_points = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Current points balance of the user (if insufficient points)."
+    )
+    expires_at = DamascusDateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Timestamp when the conversation session expires (if active/expired)."
+    )
+    message = serializers.CharField(
+        max_length=255,
+        required=False,
+        help_text="Descriptive message for the status."
+    )
+
+
+# NEW SERIALIZER FOR CHAT ACTIVATION API (PART 2)
+class ChatActivateSerializer(serializers.Serializer):
+    """
+    Serializer for the request to activate/reactivate a chat.
+    """
+    property_id = serializers.IntegerField(
+        help_text="The ID of the property for which to activate/reactivate chat."
+    )
+    conversation_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Optional: The ID of an existing conversation to reactivate."
+    )

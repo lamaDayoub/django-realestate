@@ -1,14 +1,16 @@
 # chat/views.py
 from rest_framework import generics, status
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
-from django.db.models import Q , Max, Subquery, OuterRef
+from django.db.models import Q , Max, Subquery, OuterRef, F
 from django.utils import timezone
 from drf_yasg.utils import swagger_auto_schema, no_body  # Import no_body for clarity
 from drf_yasg import openapi
-
+from properties.models import Property
 from .models import Conversation, Message 
+from django.db import transaction 
 from django.db import models
 from asgiref.sync import async_to_sync 
 from django.db.models.functions import Coalesce
@@ -23,7 +25,10 @@ from .serializers import (
     FileUploadSerializer,
     UserStatusUpdateSerializer, 
     ChatParticipantSerializer,
+    ChatStatusCheckSerializer, 
+    ChatActivateSerializer,
 )
+from datetime import timedelta
 # Assuming User is in users.models
 from users.models import User 
 
@@ -299,6 +304,251 @@ class ConversationDetailView(generics.ListAPIView):
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
+
+
+class CheckChatStatusView(APIView):
+    """
+    API endpoint (Part 1) to check the status of a chat session for a given property.
+    Returns whether a new chat is needed, if an existing one is active/expired,
+    and the associated cost/conversation ID.
+    """
+    permission_classes = [IsAuthenticated]
+
+    # Define the cost of a new chat or reactivation (e.g., 50 points)
+    CHAT_COST = 50
+    CHAT_SESSION_DURATION_DAYS = 60 # 2 months
+
+    @swagger_auto_schema(
+        operation_id="check_chat_status",
+        operation_description="Check the status of a chat session for a specific property. This is the first step before initiating or reactivating a chat.",
+        manual_parameters=[
+            openapi.Parameter(
+                'property_id',
+                openapi.IN_PATH,
+                description="The ID of the property to check chat status for.",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="Chat status retrieved successfully.",
+                schema=ChatStatusCheckSerializer,
+                examples={
+                    "application/json": {
+                        "status_code": "NEW_CHAT_AVAILABLE",
+                        "cost": 50.00,
+                        "message": "Start a new chat with the owner for 50 points."
+                    },
+                    "application/json": {
+                        "status_code": "CHAT_ACTIVE",
+                        "conversation_id": 123,
+                        "expires_at": "2025-09-01T10:00:00+03:00",
+                        "message": "Chat is active until Sep 01, 2025."
+                    },
+                    "application/json": {
+                        "status_code": "CHAT_EXPIRED_REACTIVATE",
+                        "conversation_id": 123,
+                        "cost": 50.00,
+                        "expires_at": "2025-07-01T10:00:00+03:00",
+                        "message": "Chat expired on Jul 01, 2025. Reactivate for 50 points."
+                    },
+                    "application/json": {
+                        "status_code": "INSUFFICIENT_POINTS",
+                        "cost": 50.00,
+                        "current_points": 20,
+                        "message": "Insufficient points. You need 50 points to chat, but have 20."
+                    }
+                }
+            ),
+            401: "Unauthorized",
+            404: "Property not found."
+        },
+        security=[{'Bearer': []}]
+    )
+    def get(self, request, property_id, *args, **kwargs):
+        user = request.user
+        try:
+            property_instance = Property.objects.select_related('owner').get(id=property_id)
+        except Property.DoesNotExist:
+            return Response({"detail": "Property not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        owner = property_instance.owner
+
+        # Prevent user from chatting with themselves
+        if user == owner:
+            return Response({"detail": "You cannot chat with yourself."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Try to find an existing conversation
+        conversation = Conversation.objects.filter(
+            Q(participant1=user, participant2=owner) | Q(participant1=owner, participant2=user)
+        ).first()
+
+        response_data = {
+            "status_code": None,
+            "conversation_id": None,
+            "cost": None,
+            "current_points": user.points,
+            "expires_at": None,
+            "message": None,
+        }
+
+        if conversation:
+            response_data["conversation_id"] = conversation.id
+            if conversation.expires_at and conversation.expires_at > timezone.now():
+                # Chat is active
+                response_data["status_code"] = "CHAT_ACTIVE"
+                response_data["expires_at"] = timezone.localtime(conversation.expires_at).isoformat()
+                response_data["message"] = f"Chat is active until {timezone.localtime(conversation.expires_at).strftime('%b %d, %Y')}."
+            else:
+                # Chat exists but is expired
+                response_data["status_code"] = "CHAT_EXPIRED_REACTIVATE"
+                response_data["cost"] = self.CHAT_COST
+                response_data["expires_at"] = timezone.localtime(conversation.expires_at).isoformat() if conversation.expires_at else None
+                response_data["message"] = (
+                    f"Chat expired on {timezone.localtime(conversation.expires_at).strftime('%b %d, %Y') if conversation.expires_at else 'an unknown date'}. "
+                    f"Reactivate for {self.CHAT_COST} points."
+                )
+        else:
+            # No conversation exists, new chat needed
+            response_data["status_code"] = "NEW_CHAT_AVAILABLE"
+            response_data["cost"] = self.CHAT_COST
+            response_data["message"] = f"Start a new chat with the owner for {self.CHAT_COST} points."
+
+        # Final check for insufficient points if a cost is involved
+        if response_data["cost"] is not None and user.points < response_data["cost"]:
+            response_data["status_code"] = "INSUFFICIENT_POINTS"
+            response_data["message"] = (
+                f"Insufficient points. You need {response_data['cost']} points to chat, "
+                f"but have {user.points}."
+            )
+            # Ensure cost is still shown even if insufficient
+            response_data["cost"] = self.CHAT_COST
+
+
+        serializer = ChatStatusCheckSerializer(response_data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class ActivateChatView(APIView):
+    """
+    API endpoint (Part 2) to activate or reactivate a chat session after a status check.
+    Deducts points and sets/updates conversation expiry.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = ChatActivateSerializer
+
+    # Define the cost of a new chat or reactivation (must match CheckChatStatusView)
+    CHAT_COST = 50
+    CHAT_SESSION_DURATION_DAYS = 60 # 2 months
+
+    @swagger_auto_schema(
+        operation_id="activate_chat_session",
+        operation_description="Activate or reactivate a chat session for a property. This is the second step after checking chat status and confirming payment.",
+        request_body=ChatActivateSerializer,
+        responses={
+            200: openapi.Response(
+                description="Chat activated/reactivated successfully.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'detail': openapi.Schema(type=openapi.TYPE_STRING),
+                        'conversation_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                        'expires_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
+                        'new_points_balance': openapi.Schema(type=openapi.TYPE_INTEGER),
+                    }
+                ),
+                examples={
+                    "application/json": {
+                        "detail": "Chat activated successfully.",
+                        "conversation_id": 123,
+                        "expires_at": "2025-09-01T10:00:00+03:00",
+                        "new_points_balance": 450
+                    }
+                }
+            ),
+            400: "Bad request (e.g., invalid input, chat not needing activation, insufficient points).",
+            401: "Unauthorized",
+            404: "Property or conversation not found."
+        },
+        security=[{'Bearer': []}]
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        property_id = serializer.validated_data['property_id']
+        conversation_id = serializer.validated_data.get('conversation_id')
+        user = request.user
+
+        try:
+            property_instance = Property.objects.select_related('owner').get(id=property_id)
+        except Property.DoesNotExist:
+            return Response({"detail": "Property not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        owner = property_instance.owner
+
+        # Prevent user from chatting with themselves
+        if user == owner:
+            return Response({"detail": "You cannot chat with yourself."}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            # Re-fetch user and conversation within the atomic block for freshest data
+            user.refresh_from_db()
+
+            conversation = None
+            if conversation_id:
+                try:
+                    conversation = Conversation.objects.get(
+                Q(id=conversation_id) & (Q(participant1=user) | Q(participant2=user))
+            )
+                except Conversation.DoesNotExist:
+                    return Response({"detail": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
+            
+            # Determine if points need to be deducted
+            points_deducted = False
+            if not conversation or (conversation.expires_at and conversation.expires_at <= timezone.now()):
+                # New conversation OR expired conversation needs reactivation
+                if user.points < self.CHAT_COST:
+                    return Response(
+                        {"detail": f"Insufficient points. You need {self.CHAT_COST} points to activate/reactivate chat, but have {user.points}."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                user.points = F('points') - self.CHAT_COST
+                user.save(update_fields=['points'])
+                points_deducted = True
+                user.refresh_from_db() # Get updated points after deduction
+
+            # Create or update conversation
+            if not conversation:
+                conversation = Conversation.objects.create(
+                    participant1=user,
+                    participant2=owner,
+                    activated_at=timezone.now(),
+                    expires_at=timezone.now() + timedelta(days=self.CHAT_SESSION_DURATION_DAYS)
+                )
+                detail_message = "Chat activated successfully."
+            elif points_deducted: # Only update if points were actually deducted (i.e., it was expired)
+                conversation.activated_at = timezone.now()
+                conversation.expires_at = timezone.now() + timedelta(days=self.CHAT_SESSION_DURATION_DAYS)
+                conversation.save(update_fields=['activated_at', 'expires_at'])
+                detail_message = "Chat reactivated successfully."
+            else:
+                # Conversation was already active and no points were deducted
+                detail_message = "Chat is already active."
+
+
+            # Return success response
+            return Response(
+                {
+                    "detail": detail_message,
+                    "conversation_id": conversation.id,
+                    "expires_at": timezone.localtime(conversation.expires_at).isoformat() if conversation.expires_at else None,
+                    "new_points_balance": user.points,
+                },
+                status=status.HTTP_200_OK
+            )
+
 
 # --- API endpoint for Creating New Conversations ---
 class CreateConversationView(generics.CreateAPIView):

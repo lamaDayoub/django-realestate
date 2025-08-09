@@ -14,6 +14,16 @@ class Conversation(models.Model):
     participant2 = models.ForeignKey(User, related_name='conversations_as_p2', on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    activated_at = models.DateTimeField(
+        null=True, 
+        blank=True, 
+        help_text="Timestamp when the conversation was last activated/paid for."
+    )
+    expires_at = models.DateTimeField(
+        null=True, 
+        blank=True, 
+        help_text="Timestamp when the conversation session expires."
+    )
 
 
     def __str__(self):

@@ -7,6 +7,8 @@ from .views import (
     FileUploadView, 
     UserStatusUpdateView,
     UnreadMessagesInConversationView,
+    CheckChatStatusView, 
+    ActivateChatView,
 )
 
 urlpatterns = [
@@ -17,5 +19,8 @@ urlpatterns = [
     path('files/upload/', FileUploadView.as_view(), name='file-upload'),
     path('conversations/<int:pk>/messages/', ConversationDetailView.as_view(), name='conversation-messages'),
     path('files/upload/', FileUploadView.as_view(), name='file-upload'),
-    path('status/', UserStatusUpdateView.as_view(), name='user-status-update'), # Your existing API view for manual status updates
+    path('status/', UserStatusUpdateView.as_view(), name='user-status-update'), 
+    path('conversations/check-status/<int:property_id>/', CheckChatStatusView.as_view(), name='chat-check-status'),
+    path('conversations/activate/', ActivateChatView.as_view(), name='chat-activate'),
+
 ]

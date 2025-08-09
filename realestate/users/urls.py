@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import SignUpView,logout_view,ResetPasswordView,CustomLoginView,PublicProfileView,ProfileView,ChangePasswordView,VerifyCodeView
-from .views import ToggleSellerModeView,CheckActivationStatusView,SendVerificationCodeView
+from .views import ChargePointsView,ToggleSellerModeView,CheckActivationStatusView,SendVerificationCodeView
 urlpatterns = [
     path('signup/',SignUpView.as_view(),name='signup'),
     path('login/',CustomLoginView.as_view(),name='login'),
@@ -14,5 +14,6 @@ urlpatterns = [
     #path('delete-photo/', ProfileView.as_view({'delete': 'delete_photo'}), name='delete_profile_photo'),
     path('profile/is-seller/', ToggleSellerModeView.as_view(), name='toggle_seller_mode'),
     path('check-activation-status/', CheckActivationStatusView.as_view(), name='check_activation_status'),
+    path('charge-points/', ChargePointsView.as_view(), name='charge-points'),
     
 ]
