@@ -721,7 +721,7 @@ class UnreadMessagesInConversationView(generics.ListAPIView):
     """
     permission_classes = [IsAuthenticated]
     serializer_class = MessageSerializer # We'll override list to return just IDs, but need a serializer for Swagger
-
+    queryset = Message.objects.none()
     @swagger_auto_schema(
         operation_description="Get a list of unread message IDs for the authenticated user within a specific conversation. These are messages sent by the other participant that the current user has not yet read.",
         manual_parameters=[

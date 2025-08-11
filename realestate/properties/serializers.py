@@ -13,11 +13,23 @@ class CoordinateValidationMixin:
         return value
     
     
+
+      
 class PropertySerializer(CoordinateValidationMixin,serializers.ModelSerializer):
     main_photo = serializers.SerializerMethodField()
-    property_registry_number = serializers.SerializerMethodField()
-    # is_owner_verified is read-only for all, visible to public
+    
+    # FIX: property_registry_number is now a regular CharField
+    # Its output will be controlled by to_representation below.
+    property_registry_number = serializers.CharField(
+        max_length=50,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Official registration number of the property."
+    )
+    
     is_owner_verified = serializers.BooleanField(read_only=True) 
+
     class Meta:
         model = Property
         fields = [
@@ -35,45 +47,36 @@ class PropertySerializer(CoordinateValidationMixin,serializers.ModelSerializer):
             'longitude',
             'rating',
             'main_photo',  
-            'property_registry_number', # Included as write_only for input/owner
+            'property_registry_number', # Now a standard CharField for input/output
             'is_owner_verified',
         ]
         extra_kwargs = {
             'owner': {'read_only': True},
             'rating':{'read_only': True},
         }
-    def get_property_registry_number(self, obj):
-        request = self.context.get('request')
-        # Only show registry number if the requesting user is the property owner
-        if request and request.user.is_authenticated and request.user == obj.owner:
-            return obj.property_registry_number
-        return None # Hide from others (including public list view)
 
-    # def validate(self, data):
-    #     # Check for existing similar properties
-    #     existing = Property.objects.filter(
-    #         owner=self.context['request'].user,
-    #         ptype=data.get('ptype'),
-    #         city=data.get('city'),
-    #         area=data.get('area'),
-    #         price=data.get('price'),
-    #         active=data.get('active'),
-    #         number_of_rooms=data.get('number_of_rooms'),
-    #         bathrooms=data.get('bathrooms'),
-    #         is_for_rent=data.get('is_for_rent'),
-    #         latitude=data.get('latitude'),
-    #         longitude=data.get('longitude'),
-            
-    #     ).exists()
+    # NEW: Override to_representation to conditionally include property_registry_number
+    def to_representation(self, instance):
+        """
+        Custom representation to conditionally include property_registry_number
+        only for the property owner.
+        """
+        # Get the default representation first
+        data = super().to_representation(instance)
         
-    #     if existing:
-    #         raise serializers.ValidationError(
-    #             "You already have a similar property listed with these exact details."
-    #         )
-    #     return data
+        request = self.context.get('request')
+        
+        # Check if the requesting user is the owner of this property
+        if request and request.user.is_authenticated and request.user == instance.owner:
+            data['property_registry_number'] = instance.property_registry_number
+        else:
+            # If not the owner, ensure it's not present or is None
+            data['property_registry_number'] = None # Explicitly set to None for non-owners
+            # Or you could use: data.pop('property_registry_number', None) to remove it entirely
+            
+        return data
+
     def validate(self, data):
-        # Apply validation only if creating a new property or updating specific fields
-        # Ensure 'owner' is available in context for validation
         request_user = self.context['request'].user
         
         # If updating, exclude the current instance from the uniqueness check
@@ -90,9 +93,8 @@ class PropertySerializer(CoordinateValidationMixin,serializers.ModelSerializer):
                 is_for_rent=data.get('is_for_rent', self.instance.is_for_rent),
                 latitude=data.get('latitude', self.instance.latitude),
                 longitude=data.get('longitude', self.instance.longitude),
-            ).exclude(pk=self.instance.pk) # Exclude current instance if it's an update
+            ).exclude(pk=self.instance.pk)
         else:
-            # For creation, check against all existing properties of the owner
             existing_query = Property.objects.filter(
                 owner=request_user,
                 ptype=data.get('ptype'),
@@ -112,8 +114,7 @@ class PropertySerializer(CoordinateValidationMixin,serializers.ModelSerializer):
                 "You already have a similar property listed with these exact details."
             )
         
-        # NEW: Validate property_registry_number uniqueness on input if provided
-        # Since it's unique=True in model, Django will also enforce, but this gives a cleaner error
+        # Validate property_registry_number uniqueness on input if provided
         property_registry_number = data.get('property_registry_number')
         if property_registry_number:
             if self.instance: # If updating
@@ -125,38 +126,15 @@ class PropertySerializer(CoordinateValidationMixin,serializers.ModelSerializer):
 
         return data
         
-    def create(self, validated_data):
-        # Extract property_registry_number from validated_data manually
-        property_registry_number = validated_data.pop('property_registry_number', None)
-        
-        instance = super().create(validated_data) # Call parent create method
-        
-        # Assign property_registry_number after instance creation
-        if property_registry_number is not None:
-            instance.property_registry_number = property_registry_number
-            instance.save(update_fields=['property_registry_number'])
-            
-        return instance
-
-    def update(self, instance, validated_data):
-        # Extract property_registry_number from validated_data manually
-        property_registry_number = validated_data.pop('property_registry_number', None)
-        
-        instance = super().update(instance, validated_data) # Call parent update method
-        
-        # Assign property_registry_number after instance update
-        if property_registry_number is not None:
-            instance.property_registry_number = property_registry_number
-            instance.save(update_fields=['property_registry_number'])
-            
-        return instance
-        
-    def get_main_photo(self, obj):
-        # Get the first image for the property, if any
-        first_image = obj.images.first()
-        return first_image.image.url if first_image else None
+    # No need to override create/update explicitly for property_registry_number anymore
+    # ModelSerializer's default create/update will handle it now that it's a regular field.
     
-      
+    def get_main_photo(self, obj):
+        request = self.context.get('request')
+        first_image = obj.images.first()
+        if first_image and request:
+            return request.build_absolute_uri(first_image.image.url)
+        return None
 
 class PropertyImageSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()

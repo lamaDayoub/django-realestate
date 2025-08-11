@@ -7,6 +7,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from .utils import validate_user_email
+from decimal import Decimal
 User = get_user_model()
 
 class UserCreateSerializer(serializers.ModelSerializer):
@@ -45,7 +46,6 @@ class PublicProfileSerializer(serializers.ModelSerializer):
 class ProfileSerializer(serializers.ModelSerializer):
     points = serializers.SerializerMethodField()
     is_seller = serializers.SerializerMethodField()
-    national_id_number = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=20)
     is_identity_verified = serializers.BooleanField(read_only=True)
 
     class Meta:
@@ -75,8 +75,10 @@ class ProfileSerializer(serializers.ModelSerializer):
         instance.birth_date=validated_data.get('birth_date', instance.birth_date)
         instance.country=validated_data.get('country', instance.country)
         instance.phone_number=validated_data.get('phone_number', instance.phone_number)
-        if 'national_id_number' in validated_data:
-            instance.national_id_number = validated_data['national_id_number']
+        instance.national_id_number = validated_data.get('national_id_number', instance.national_id_number) # This will be handled by EncryptedCharField
+
+        # if 'national_id_number' in validated_data:
+        #     instance.national_id_number = validated_data['national_id_number']
 
         # Handle clearing fields with null values
         if 'last_name' in validated_data and validated_data['last_name'] is None:
@@ -170,7 +172,7 @@ class ChargePointsSerializer(serializers.Serializer):
     amount = serializers.DecimalField(
         max_digits=10,
         decimal_places=2,
-        min_value=0.01,
+        min_value=Decimal('0.01'),
         help_text="Amount of money to charge (e.g., in SYP or USD)."
     )
 

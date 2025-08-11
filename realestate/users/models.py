@@ -5,7 +5,7 @@ from realestate import settings
 import uuid
 from datetime import timedelta
 from django.utils import timezone
-
+from users.fields import EncryptedCharField
 
 def user_directory_path(instance,filename):
     return f'userphotoes/user_{instance.id}/{filename}'
@@ -86,14 +86,21 @@ class Profile(models.Model):
     birth_date = models.DateField(blank=True, null=True)
     gender = models.CharField(max_length=1, choices=GENDER_CHOICES, blank=True, null=True)
     country = models.CharField(max_length=100, blank=True, null=True)
-    phone_number = models.CharField(max_length=15, blank=True, null=True)  # Adjust max_length as needed
-    # NEW FIELDS FOR IDENTITY VERIFICATION
-    national_id_number = models.CharField(
-        max_length=20, # Adjust max_length based on Syrian National ID format
-        unique=True,
+    # NEW: Use EncryptedCharField for phone_number
+    phone_number = EncryptedCharField(
+        max_length=15, # Max length of the plaintext data
+        blank=True, 
+        null=True, 
+        help_text="Encrypted phone number."
+    )
+    
+    # NEW: Use EncryptedCharField for national_id_number
+    national_id_number = EncryptedCharField(
+        max_length=20, # Max length of the plaintext data
+        unique=True, # Unique constraint applies to the encrypted value in DB
         blank=True,
         null=True,
-        help_text="National identity number for verification purposes."
+        help_text="Encrypted national identity number for verification purposes."
     )
     is_identity_verified = models.BooleanField(
         default=False,
