@@ -316,43 +316,16 @@ class ChatActivateSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional: The ID of an existing conversation to reactivate."
     )
-    
-class SingleConversationDetailSerializer(serializers.ModelSerializer):
-    """
-    Serializer for a single conversation's details, including other participant's info
-    and the last message.
-    """
-    # Reuse ChatParticipantSerializer for the other user's details
-    other_user = ChatParticipantSerializer(read_only=True)
-    
-    # Nested serializer for the last message
-    last_message = serializers.SerializerMethodField()
 
-    class Meta:
+class SingleConversationDetailSerializer(ConversationListSerializer): # FIX: Inherit from ConversationListSerializer
+    """
+    Serializer for a single conversation's details, reusing ConversationListSerializer's logic.
+    This provides the same top-level fields as a single item from the conversation list.
+    """
+    class Meta(ConversationListSerializer.Meta): # Inherit Meta from parent
         model = Conversation
-        fields = [
-            'id',
-            'other_user',
-            'last_message',
-            'activated_at',
-            'expires_at',
-            'created_at',
-            'updated_at',
-        ]
-        read_only_fields = fields # All fields are read-only for this detail view
-
-    def get_other_user(self, obj):
-        request = self.context['request']
-        user = request.user
-        other_participant = obj.participant2 if user == obj.participant1 else obj.participant1
-        # Ensure profile is selected for ChatParticipantSerializer
-        return ChatParticipantSerializer(other_participant, context={'request': request}).data
-
-    def get_last_message(self, obj):
-        # Fetch the actual last message object to serialize it fully
-        last_msg_obj = obj.messages.order_by('-created_at').first()
-        if last_msg_obj:
-            # Re-use MessageSerializer for the last message details
-            request = self.context['request']
-            return MessageSerializer(last_msg_obj, context={'request': request}).data
-        return None
+        # No need to redefine fields here unless you want to exclude some from the parent.
+        # By default, it will inherit all fields from ConversationListSerializer.
+        fields = ConversationListSerializer.Meta.fields
+        read_only_fields =  ConversationListSerializer.Meta.fields
+    
