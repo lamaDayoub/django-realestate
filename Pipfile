@@ -21,7 +21,10 @@ django-celery-results = "*"
 django-celery-beat = "*"
 channels_redis = "*"
 pycryptodome = "*"
-
+dj-database-url = "*"
+gunicorn="*"
+django-storages = "*"
+boto3 = "*"
 [dev-packages]
 
 [requires]

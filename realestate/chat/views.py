@@ -27,12 +27,64 @@ from .serializers import (
     ChatParticipantSerializer,
     ChatStatusCheckSerializer, 
     ChatActivateSerializer,
+    SingleConversationDetailSerializer,
 )
 from datetime import timedelta
 # Assuming User is in users.models
 from users.models import User 
 
+class SingleConversationInfoView(APIView):
+    """
+    API endpoint to retrieve detailed information for a specific conversation.
+    This includes details of the other participant and the last message in the conversation.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = SingleConversationDetailSerializer # Set the serializer for Swagger introspection
 
+    @swagger_auto_schema(
+        operation_id="get_single_conversation_info",
+        operation_description="Retrieve detailed information for a specific conversation by its ID. This includes the other participant's details and the last message.",
+        manual_parameters=[
+            openapi.Parameter(
+                'pk',
+                openapi.IN_PATH,
+                description="The ID of the conversation to retrieve details for.",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="Conversation details retrieved successfully.",
+                schema=SingleConversationDetailSerializer
+            ),
+            401: "Unauthorized",
+            403: "Forbidden (User is not a participant in the conversation).",
+            404: "Conversation not found."
+        },
+        security=[{'Bearer': []}]
+    )
+    def get(self, request, pk, *args, **kwargs):
+        user = request.user
+        conversation_id = pk
+
+        try:
+            # Fetch the conversation, ensuring the user is a participant
+            # Use select_related and prefetch_related for efficiency
+            conversation = Conversation.objects.select_related(
+                'participant1__profile',
+                'participant2__profile'
+            ).prefetch_related(
+                'messages' # To get the last message efficiently
+            ).get(
+                Q(id=conversation_id) & (Q(participant1=user) | Q(participant2=user))
+            )
+        except Conversation.DoesNotExist:
+            return Response({"detail": "Conversation not found or you are not a participant."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Serialize the conversation using the dedicated serializer
+        serializer = SingleConversationDetailSerializer(conversation, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 # --- API endpoint for Manual User Status Update ---
 class UserStatusUpdateView(generics.UpdateAPIView):
@@ -306,6 +358,8 @@ class ConversationDetailView(generics.ListAPIView):
         return super().get(request, *args, **kwargs)
 
 
+
+
 class CheckChatStatusView(APIView):
     """
     API endpoint (Part 1) to check the status of a chat session for a given property.
@@ -386,27 +440,32 @@ class CheckChatStatusView(APIView):
 
         response_data = {
             "status_code": None,
-            "conversation_id": None,
+            "conversation_id": None, # Will be set below if conversation exists
             "cost": None,
             "current_points": user.points,
             "expires_at": None,
             "message": None,
         }
-
+        
+        # Always set conversation_id if a conversation object is found
         if conversation:
             response_data["conversation_id"] = conversation.id
-            if conversation.expires_at and conversation.expires_at > timezone.now():
+
+        if conversation:
+            expires_at_dt = conversation.expires_at # Get the datetime object
+            
+            if expires_at_dt and expires_at_dt > timezone.now():
                 # Chat is active
                 response_data["status_code"] = "CHAT_ACTIVE"
-                response_data["expires_at"] = timezone.localtime(conversation.expires_at).isoformat()
-                response_data["message"] = f"Chat is active until {timezone.localtime(conversation.expires_at).strftime('%b %d, %Y')}."
+                response_data["expires_at"] = expires_at_dt # Pass datetime object
+                response_data["message"] = f"Chat is active until {timezone.localtime(expires_at_dt).strftime('%b %d, %Y')}."
             else:
                 # Chat exists but is expired
                 response_data["status_code"] = "CHAT_EXPIRED_REACTIVATE"
                 response_data["cost"] = self.CHAT_COST
-                response_data["expires_at"] = timezone.localtime(conversation.expires_at).isoformat() if conversation.expires_at else None
+                response_data["expires_at"] = expires_at_dt # Pass datetime object
                 response_data["message"] = (
-                    f"Chat expired on {timezone.localtime(conversation.expires_at).strftime('%b %d, %Y') if conversation.expires_at else 'an unknown date'}. "
+                    f"Chat expired on {timezone.localtime(expires_at_dt).strftime('%b %d, %Y') if expires_at_dt else 'an unknown date'}. "
                     f"Reactivate for {self.CHAT_COST} points."
                 )
         else:
@@ -428,7 +487,6 @@ class CheckChatStatusView(APIView):
 
         serializer = ChatStatusCheckSerializer(response_data)
         return Response(serializer.data, status=status.HTTP_200_OK)
-
 
 class ActivateChatView(APIView):
     """
@@ -504,6 +562,12 @@ class ActivateChatView(APIView):
             )
                 except Conversation.DoesNotExist:
                     return Response({"detail": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
+            else:
+                # If no conversation_id is provided, check if a conversation already exists
+                # between these two participants (user and owner).
+                conversation = Conversation.objects.select_for_update().filter(
+                    Q(participant1=user, participant2=owner) | Q(participant1=owner, participant2=user)
+                ).first() # Use .first() because it's unique_together, so at most one.
             
             # Determine if points need to be deducted
             points_deducted = False

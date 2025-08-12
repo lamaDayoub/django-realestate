@@ -9,6 +9,8 @@ from .views import (
     UnreadMessagesInConversationView,
     CheckChatStatusView, 
     ActivateChatView,
+    SingleConversationInfoView,
+    
 )
 
 urlpatterns = [
@@ -22,5 +24,5 @@ urlpatterns = [
     path('status/', UserStatusUpdateView.as_view(), name='user-status-update'), 
     path('conversations/check-status/<int:property_id>/', CheckChatStatusView.as_view(), name='chat-check-status'),
     path('conversations/activate/', ActivateChatView.as_view(), name='chat-activate'),
-
+     path('conversations/<int:pk>/info/', SingleConversationInfoView.as_view(), name='conversation-info'),
 ]
