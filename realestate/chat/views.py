@@ -33,6 +33,7 @@ from datetime import timedelta
 # Assuming User is in users.models
 from users.models import User 
 
+
 class SingleConversationInfoView(APIView):
     """
     API endpoint to retrieve detailed information for a specific conversation.
@@ -68,14 +69,23 @@ class SingleConversationInfoView(APIView):
         user = request.user
         conversation_id = pk
 
+        # --- FIX: Annotate the conversation object with last message details ---
+        last_message_subquery = Message.objects.filter(
+            conversation=OuterRef('pk')
+        ).order_by('-created_at').values('id', 'content', 'message_type', 'is_read', 'created_at')[:1]
+
         try:
             # Fetch the conversation, ensuring the user is a participant
-            # Use select_related and prefetch_related for efficiency
+            # Now, also annotate it with the last message details
             conversation = Conversation.objects.select_related(
                 'participant1__profile',
                 'participant2__profile'
-            ).prefetch_related(
-                'messages' # To get the last message efficiently
+            ).annotate(
+                last_message_id=Subquery(last_message_subquery.values('id')),
+                last_message_content=Subquery(last_message_subquery.values('content')),
+                last_message_type=Subquery(last_message_subquery.values('message_type')),
+                last_message_is_read=Subquery(last_message_subquery.values('is_read')),
+                last_message_created_at=Subquery(last_message_subquery.values('created_at')),
             ).get(
                 Q(id=conversation_id) & (Q(participant1=user) | Q(participant2=user))
             )
@@ -83,8 +93,10 @@ class SingleConversationInfoView(APIView):
             return Response({"detail": "Conversation not found or you are not a participant."}, status=status.HTTP_404_NOT_FOUND)
 
         # Serialize the conversation using the dedicated serializer
+        # The serializer will now find the annotated 'last_message_id', 'last_message_content' etc.
         serializer = SingleConversationDetailSerializer(conversation, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 # --- API endpoint for Manual User Status Update ---
 class UserStatusUpdateView(generics.UpdateAPIView):
@@ -488,6 +500,131 @@ class CheckChatStatusView(APIView):
         serializer = ChatStatusCheckSerializer(response_data)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+# class ActivateChatView(APIView):
+#     """
+#     API endpoint (Part 2) to activate or reactivate a chat session after a status check.
+#     Deducts points and sets/updates conversation expiry.
+#     """
+#     permission_classes = [IsAuthenticated]
+#     serializer_class = ChatActivateSerializer
+
+#     # Define the cost of a new chat or reactivation (must match CheckChatStatusView)
+#     CHAT_COST = 50
+#     CHAT_SESSION_DURATION_DAYS = 60 # 2 months
+
+#     @swagger_auto_schema(
+#         operation_id="activate_chat_session",
+#         operation_description="Activate or reactivate a chat session for a property. This is the second step after checking chat status and confirming payment.",
+#         request_body=ChatActivateSerializer,
+#         responses={
+#             200: openapi.Response(
+#                 description="Chat activated/reactivated successfully.",
+#                 schema=openapi.Schema(
+#                     type=openapi.TYPE_OBJECT,
+#                     properties={
+#                         'detail': openapi.Schema(type=openapi.TYPE_STRING),
+#                         'conversation_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                         'expires_at': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_DATETIME),
+#                         'new_points_balance': openapi.Schema(type=openapi.TYPE_INTEGER),
+#                     }
+#                 ),
+#                 examples={
+#                     "application/json": {
+#                         "detail": "Chat activated successfully.",
+#                         "conversation_id": 123,
+#                         "expires_at": "2025-09-01T10:00:00+03:00",
+#                         "new_points_balance": 450
+#                     }
+#                 }
+#             ),
+#             400: "Bad request (e.g., invalid input, chat not needing activation, insufficient points).",
+#             401: "Unauthorized",
+#             404: "Property or conversation not found."
+#         },
+#         security=[{'Bearer': []}]
+#     )
+#     def post(self, request, *args, **kwargs):
+#         serializer = self.serializer_class(data=request.data)
+#         serializer.is_valid(raise_exception=True)
+
+#         property_id = serializer.validated_data['property_id']
+#         conversation_id = serializer.validated_data.get('conversation_id')
+#         user = request.user
+
+#         try:
+#             property_instance = Property.objects.select_related('owner').get(id=property_id)
+#         except Property.DoesNotExist:
+#             return Response({"detail": "Property not found."}, status=status.HTTP_404_NOT_FOUND)
+
+#         owner = property_instance.owner
+
+#         # Prevent user from chatting with themselves
+#         if user == owner:
+#             return Response({"detail": "You cannot chat with yourself."}, status=status.HTTP_400_BAD_REQUEST)
+
+#         with transaction.atomic():
+#             # Re-fetch user and conversation within the atomic block for freshest data
+#             user.refresh_from_db()
+
+#             conversation = None
+#             if conversation_id:
+#                 try:
+#                     conversation = Conversation.objects.get(
+#                 Q(id=conversation_id) & (Q(participant1=user) | Q(participant2=user))
+#             )
+#                 except Conversation.DoesNotExist:
+#                     return Response({"detail": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
+#             else:
+#                 # If no conversation_id is provided, check if a conversation already exists
+#                 # between these two participants (user and owner).
+#                 conversation = Conversation.objects.select_for_update().filter(
+#                     Q(participant1=user, participant2=owner) | Q(participant1=owner, participant2=user)
+#                 ).first() # Use .first() because it's unique_together, so at most one.
+            
+#             # Determine if points need to be deducted
+#             points_deducted = False
+#             if not conversation or (conversation.expires_at and conversation.expires_at <= timezone.now()):
+#                 # New conversation OR expired conversation needs reactivation
+#                 if user.points < self.CHAT_COST:
+#                     return Response(
+#                         {"detail": f"Insufficient points. You need {self.CHAT_COST} points to activate/reactivate chat, but have {user.points}."},
+#                         status=status.HTTP_400_BAD_REQUEST
+#                     )
+#                 user.points = F('points') - self.CHAT_COST
+#                 user.save(update_fields=['points'])
+#                 points_deducted = True
+#                 user.refresh_from_db() # Get updated points after deduction
+
+#             # Create or update conversation
+#             if not conversation:
+#                 conversation = Conversation.objects.create(
+#                     participant1=user,
+#                     participant2=owner,
+#                     activated_at=timezone.now(),
+#                     expires_at=timezone.now() + timedelta(days=self.CHAT_SESSION_DURATION_DAYS)
+#                 )
+#                 detail_message = "Chat activated successfully."
+#             elif points_deducted: # Only update if points were actually deducted (i.e., it was expired)
+#                 conversation.activated_at = timezone.now()
+#                 conversation.expires_at = timezone.now() + timedelta(days=self.CHAT_SESSION_DURATION_DAYS)
+#                 conversation.save(update_fields=['activated_at', 'expires_at'])
+#                 detail_message = "Chat reactivated successfully."
+#             else:
+#                 # Conversation was already active and no points were deducted
+#                 detail_message = "Chat is already active."
+
+
+#             # Return success response
+#             return Response(
+#                 {
+#                     "detail": detail_message,
+#                     "conversation_id": conversation.id,
+#                     "expires_at": timezone.localtime(conversation.expires_at).isoformat() if conversation.expires_at else None,
+#                     "new_points_balance": user.points,
+#                 },
+#                 status=status.HTTP_200_OK
+#             )
+
 class ActivateChatView(APIView):
     """
     API endpoint (Part 2) to activate or reactivate a chat session after a status check.
@@ -555,11 +692,16 @@ class ActivateChatView(APIView):
             user.refresh_from_db()
 
             conversation = None
+            # FIX: Always perform the lookup for an existing conversation between user and owner
+            # If conversation_id is provided, use it for the lookup, but still verify participants
+            # If conversation_id is NOT provided, just look for a conversation between user and owner
             if conversation_id:
+                # If conversation_id is provided, try to get that specific conversation
+                # and ensure the current user is a participant.
                 try:
-                    conversation = Conversation.objects.get(
-                Q(id=conversation_id) & (Q(participant1=user) | Q(participant2=user))
-            )
+                    conversation = Conversation.objects.select_for_update().get(
+                        Q(id=conversation_id) & (Q(participant1=user) | Q(participant2=user))
+                    )
                 except Conversation.DoesNotExist:
                     return Response({"detail": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
             else:
@@ -592,11 +734,121 @@ class ActivateChatView(APIView):
                     expires_at=timezone.now() + timedelta(days=self.CHAT_SESSION_DURATION_DAYS)
                 )
                 detail_message = "Chat activated successfully."
+                # --- NEW: Broadcast for new conversation creation ---
+                channel_layer = get_channel_layer()
+                if channel_layer:
+                    # Fetch participants with profiles for serialization
+                    participant1_with_profile = User.objects.select_related('profile').get(pk=user.pk)
+                    participant2_with_profile = User.objects.select_related('profile').get(pk=owner.pk)
+
+                    conv_created_at = timezone.localtime(conversation.created_at).isoformat()
+                    conv_updated_at = timezone.localtime(conversation.updated_at).isoformat()
+
+                    payload_data_base = {
+                        'type': 'chat.conversation_update',
+                        'conversation_id': conversation.id,
+                        'last_message_data': None, # No last message yet for new chat
+                        'unread_count_for_this_conversation': 0,
+                        'is_new_conversation': True, # Explicitly mark as new
+                        'created_at': conv_created_at,
+                        'updated_at': conv_updated_at,
+                        'activated_at': timezone.localtime(conversation.activated_at).isoformat(),
+                        'expires_at': timezone.localtime(conversation.expires_at).isoformat(),
+                    }
+
+                    # Broadcast to the initiating user (participant1)
+                    payload_p1 = payload_data_base.copy()
+                    payload_p1['other_participant_details'] = ChatParticipantSerializer(participant2_with_profile, context={'request': request}).data
+                    async_to_sync(channel_layer.group_send)(
+                        f'user_{user.id}_conversation_list',
+                        payload_p1
+                    )
+                    print(f"DEBUG: Dispatched real-time conversation update for NEW chat to {user.email}.")
+
+                    # Broadcast to the other user (participant2/owner)
+                    payload_p2 = payload_data_base.copy()
+                    payload_p2['other_participant_details'] = ChatParticipantSerializer(participant1_with_profile, context={'request': request}).data
+                    async_to_sync(channel_layer.group_send)(
+                        f'user_{owner.id}_conversation_list',
+                        payload_p2
+                    )
+                    print(f"DEBUG: Dispatched real-time conversation update for NEW chat to {owner.email}.")
+
+                    # Also dispatch global unread count updates (they are 0 for new chat)
+                    async_to_sync(channel_layer.group_send)(
+                        f'user_{user.id}_conversation_list',
+                        {'type': 'chat.total_unread_count_update', 'count': 0}
+                    )
+                    async_to_sync(channel_layer.group_send)(
+                        f'user_{owner.id}_conversation_list',
+                        {'type': 'chat.total_unread_count_update', 'count': 0}
+                    )
+                    print(f"DEBUG: Dispatched real-time global unread count update (0) for new chat.")
+                # --- END NEW BROADCAST ---
+
             elif points_deducted: # Only update if points were actually deducted (i.e., it was expired)
                 conversation.activated_at = timezone.now()
                 conversation.expires_at = timezone.now() + timedelta(days=self.CHAT_SESSION_DURATION_DAYS)
                 conversation.save(update_fields=['activated_at', 'expires_at'])
                 detail_message = "Chat reactivated successfully."
+                # --- NEW: Broadcast for reactivated conversation ---
+                channel_layer = get_channel_layer()
+                if channel_layer:
+                    # Fetch participants with profiles for serialization
+                    participant1_with_profile = User.objects.select_related('profile').get(pk=user.pk)
+                    participant2_with_profile = User.objects.select_related('profile').get(pk=owner.pk)
+
+                    conv_created_at = timezone.localtime(conversation.created_at).isoformat()
+                    conv_updated_at = timezone.localtime(conversation.updated_at).isoformat()
+
+                    payload_data = {
+                        'type': 'chat.conversation_update',
+                        'conversation_id': conversation.id,
+                        'last_message_data': None, # Last message data is not updated by activation
+                        'unread_count_for_this_conversation': 0, # Unread count for reactivated chat is 0 for the activator
+                        'is_new_conversation': False,
+                        'created_at': conv_created_at,
+                        'updated_at': conv_updated_at,
+                        'activated_at': timezone.localtime(conversation.activated_at).isoformat(),
+                        'expires_at': timezone.localtime(conversation.expires_at).isoformat(),
+                    }
+
+                    # Broadcast to the activating user (participant1)
+                    payload_p1_reactivate = payload_data.copy()
+                    payload_p1_reactivate['other_participant_details'] = ChatParticipantSerializer(participant2_with_profile, context={'request': request}).data
+                    async_to_sync(channel_layer.group_send)(
+                        f'user_{user.id}_conversation_list',
+                        payload_p1_reactivate
+                    )
+                    print(f"DEBUG: Dispatched real-time conversation update for REACTIVATED chat to {user.email}.")
+
+                    # Broadcast to the other user (participant2/owner)
+                    payload_p2_reactivate = payload_data.copy()
+                    payload_p2_reactivate['other_participant_details'] = ChatParticipantSerializer(participant1_with_profile, context={'request': request}).data
+                    async_to_sync(channel_layer.group_send)(
+                        f'user_{owner.id}_conversation_list',
+                        payload_p2_reactivate
+                    )
+                    print(f"DEBUG: Dispatched real-time conversation update for REACTIVATED chat to {owner.email}.")
+
+                    # Also dispatch global unread count updates (they are 0 for reactivated chat for activator)
+                    # For the owner, their total unread count might change if they had unread messages in this chat
+                    # before it expired and it's now reactivated. We should recalculate their total.
+                    total_unread_for_owner = Message.objects.filter(
+                        Q(conversation__participant1=owner) | Q(conversation__participant2=owner),
+                        is_read=False
+                    ).exclude(sender=owner).count()
+
+                    async_to_sync(channel_layer.group_send)(
+                        f'user_{user.id}_conversation_list',
+                        {'type': 'chat.total_unread_count_update', 'count': Message.objects.filter(Q(conversation__participant1=user) | Q(conversation__participant2=user), is_read=False).exclude(sender=user).count()}
+                    )
+                    async_to_sync(channel_layer.group_send)(
+                        f'user_{owner.id}_conversation_list',
+                        {'type': 'chat.total_unread_count_update', 'count': total_unread_for_owner}
+                    )
+                    print(f"DEBUG: Dispatched real-time global unread count update for reactivated chat.")
+                # --- END NEW BROADCAST ---
             else:
                 # Conversation was already active and no points were deducted
                 detail_message = "Chat is already active."
@@ -612,7 +864,6 @@ class ActivateChatView(APIView):
                 },
                 status=status.HTTP_200_OK
             )
-
 
 # --- API endpoint for Creating New Conversations ---
 class CreateConversationView(generics.CreateAPIView):
