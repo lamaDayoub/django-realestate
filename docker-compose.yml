@@ -1,58 +1,59 @@
-# docker-compose.yml
-version: '3.8' # Keep this version line. The warning is just informational.
+version: '3.8'
 
 services:
-  # --- NEW: Redis service for Celery broker ---
+  # Redis as message broker for Celery
   redis:
-    image: redis:7-alpine # Use a lightweight Redis image
+    image: redis:7-alpine
     ports:
-      - "6379:6379" # Expose Redis port if you want to access it directly from host (optional for internal Docker use)
-    #volumes: # Uncomment if you want Redis data to persist across container restarts (e.g., when trying out Celery Beat)
-    #  redis_data:/data 
+      - "6379:6379"  # Optional: only needed if debugging from host
+    # volumes:
+    #   - redis_data:/data
 
-  # Service for HTTP API and Static Files (Django's runserver)
+  # Django HTTP server (runserver)
   django_http:
-    build: . # Build from the Dockerfile in the current directory
-    command: python manage.py runserver 0.0.0.0:8888 # Command to run HTTP server
+    build: .
+    command: python manage.py runserver 0.0.0.0:8888
     volumes:
-      - ./realestate:/app/realestate # Mount the host's 'realestate' subdirectory into the container
-      - media_data:/app/realestate/media # Persist media files (user uploads)
+      - ./realestate:/app/realestate
+      - media_data:/app/realestate/media
     ports:
-      - "127.0.0.1:9999:8888" # Map host port 8000 to container port 8000
+      - "9999:8888"  
     env_file:
-      - ./realestate/.env # Load environment variables from .env file
+      - ./realestate/.env
     depends_on:
-      - redis # <--- NEW: Depend on Redis (django_http needs Redis for Celery tasks eventually)
+      - redis
+    restart: unless-stopped
 
-  # Service for WebSocket connections (Daphne)
+  # Daphne for WebSockets (ASGI)
   django_websocket:
-    build: . # Build from the Dockerfile in the current directory
-    command: daphne -b 0.0.0.0 -p 8889 realestate.asgi:application  # Command to run Daphne
+    build: .
+    command: daphne -b 0.0.0.0 -p 8889 realestate.asgi:application
     volumes:
-      - ./realestate:/app/realestate # Mount the host's 'realestate' subdirectory into the container
-      - media_data:/app/realestate/media # Share media files volume with http service
+      - ./realestate:/app/realestate
+      - media_data:/app/realestate/media
     ports:
-      - "127.0.0.1:9998:8889" # Map host port 8001 to container port 8001
+      - "9998:8889"  
     env_file:
-      - ./realestate/.env # Load environment variables from .env file
+      - ./realestate/.env
     depends_on:
-      - django_http # Ensures HTTP server is up if WebSocket requires it
-      - redis # <--- NEW: Depend on Redis (even if Channels uses InMemoryLayer, good for futureproofing)
+      - django_http
+      - redis
+    restart: unless-stopped
 
-  # --- NEW: Celery Worker Service ---
+  # Celery Worker
   celery_worker:
-    build: . # Build from the same Dockerfile
-    command: celery -A realestate worker -l info # Command to run Celery worker. realestate is your project name.
+    build: .
+    command: celery -A realestate worker -l info
     volumes:
-      - ./realestate:/app/realestate # Mount the Django project code for the worker
+      - ./realestate:/app/realestate
     env_file:
-      - ./realestate/.env # Load environment variables
+      - ./realestate/.env
     depends_on:
-      - redis # <--- Worker absolutely depends on the Redis broker
-      - django_http # Worker should wait for Django app to be ready (DB, models loaded)
-    # This service typically does not need to expose any ports to the host
+      - redis
+      - django_http
+    restart: unless-stopped
 
-# Define volumes for persistent data
+# Named volumes for persistence
 volumes:
-  media_data: # This volume will store user-uploaded media files persistently
-  # redis_data: # Uncomment if you enabled redis_data volume in the redis service above
+  media_data:
+  # redis_data:  # Uncomment if you want Redis persistence

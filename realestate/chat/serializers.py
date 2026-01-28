@@ -309,12 +309,17 @@ class ChatActivateSerializer(serializers.Serializer):
     Serializer for the request to activate/reactivate a chat.
     """
     property_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
         help_text="The ID of the property for which to activate/reactivate chat."
     )
     conversation_id = serializers.IntegerField(
         required=False,
         allow_null=True,
         help_text="Optional: The ID of an existing conversation to reactivate."
+    )
+    owner_id=serializers.IntegerField(
+        help_text="Optional: The ID ofthe other participant."
     )
 
 class SingleConversationDetailSerializer(ConversationListSerializer): # FIX: Inherit from ConversationListSerializer

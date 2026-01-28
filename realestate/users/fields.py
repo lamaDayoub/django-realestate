@@ -19,7 +19,7 @@ class EncryptedCharField(models.TextField): # Use TextField for flexibility with
         # but encryption will change length, so it's more about database column type.
         super().__init__(*args, **kwargs)
         # self.key is already bytes from settings.ENCRYPTION_KEY = base64.b64decode(...)
-        self.key = settings.ENCRYPTION_KEY # FIX: Remove .encode('utf-8') here
+        self.key = settings.ENCRYPTION_KEY 
         if len(self.key) not in [16, 24, 32]:
             raise ValueError("ENCRYPTION_KEY must be 16, 24, or 32 bytes for AES.")
 
@@ -42,10 +42,9 @@ class EncryptedCharField(models.TextField): # Use TextField for flexibility with
             decrypted_bytes = cipher.decrypt_and_verify(ciphertext, tag)
             return decrypted_bytes.decode('utf-8')
         except Exception as e:
-            # Log the error, but for production, you might want a more robust error handling
-            # or return a default value to prevent crashes.
+            
             print(f"Decryption error for field: {e}")
-            return None # Or raise an exception, depending on desired behavior
+            return None 
 
     def get_prep_value(self, value):
         """

@@ -672,17 +672,19 @@ class ActivateChatView(APIView):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        property_id = serializer.validated_data['property_id']
+        property_id = serializer.validated_data.get('property_id')
         conversation_id = serializer.validated_data.get('conversation_id')
+        owner_id=serializer.validated_data['owner_id']
         user = request.user
+        if property_id:
+            try:
+                property_instance = Property.objects.select_related('owner').get(id=property_id)
+            except Property.DoesNotExist:
+                return Response({"detail": "Property not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        try:
-            property_instance = Property.objects.select_related('owner').get(id=property_id)
-        except Property.DoesNotExist:
-            return Response({"detail": "Property not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        owner = property_instance.owner
-
+            owner = property_instance.owner
+        else:
+            owner=User.objects.get(pk=owner_id)
         # Prevent user from chatting with themselves
         if user == owner:
             return Response({"detail": "You cannot chat with yourself."}, status=status.HTTP_400_BAD_REQUEST)

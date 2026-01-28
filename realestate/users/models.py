@@ -86,18 +86,18 @@ class Profile(models.Model):
     birth_date = models.DateField(blank=True, null=True)
     gender = models.CharField(max_length=1, choices=GENDER_CHOICES, blank=True, null=True)
     country = models.CharField(max_length=100, blank=True, null=True)
-    # NEW: Use EncryptedCharField for phone_number
+    
     phone_number = EncryptedCharField(
-        max_length=15, # Max length of the plaintext data
+        max_length=15, 
         blank=True, 
         null=True, 
         help_text="Encrypted phone number."
     )
     
-    # NEW: Use EncryptedCharField for national_id_number
+   
     national_id_number = EncryptedCharField(
-        max_length=20, # Max length of the plaintext data
-        unique=True, # Unique constraint applies to the encrypted value in DB
+        max_length=20, 
+        unique=True,
         blank=True,
         null=True,
         help_text="Encrypted national identity number for verification purposes."

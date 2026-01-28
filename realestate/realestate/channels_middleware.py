@@ -14,13 +14,13 @@ def get_user_from_token(token_key):
     try:
         access_token = AccessToken(token_key)
         user_id = access_token['user_id']
-        User = get_user_model() # <--- ADD THIS LINE HERE
+        User = get_user_model() 
         user = User.objects.select_related('profile').get(id=user_id)
         if not user.is_active:
             return AnonymousUser() # User exists but is inactive
         return user
     except (InvalidToken, TokenError, KeyError, User.DoesNotExist):
-        # This block will now correctly access User.DoesNotExist
+       
         return AnonymousUser() # Token invalid, expired, or user not found
 
 class TokenAuthMiddleware:
